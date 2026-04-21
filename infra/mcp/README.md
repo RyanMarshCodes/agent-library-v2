@@ -8,8 +8,8 @@ This folder runs a unified runtime stack for:
 
 It is designed for one `.env` file and two modes:
 
-1. Default mode: connects to remote managed services (for example Azure Postgres/Redis)
-2. Local mode: starts local Postgres/Redis containers for testing
+1. Default mode: local-first (dockerized Postgres + Redis)
+2. Remote mode: override env values for managed services and optionally start only app services
 
 ## Files
 
@@ -26,33 +26,31 @@ It is designed for one `.env` file and two modes:
 Copy-Item .env.example .env
 ```
 
-2. Edit `.env` values.
+1. Edit `.env` values.
 
 ## Run modes
 
-### A) Remote services mode (default)
+### A) Local-first mode (default)
 
-Use this when Postgres/Redis are managed externally (for example Azure):
+Start everything (MCP, Bifrost, Postgres, Redis):
 
 ```powershell
 docker compose up -d --build
 ```
 
-### B) Local testing mode
+### B) Remote managed services mode
 
-Use this before remote resources are ready:
+Use this when Postgres/Redis are managed externally (for example Azure):
 
-1. Set these `.env` values for local hosts:
-	1. `MCP_DB_HOST=postgres`
-	2. `BIFROST_DB_HOST=postgres`
-	3. `BIFROST_REDIS_ADDR=redis:6379`
-	4. `MCP_DB_SSLMODE=Disable`
-	5. `BIFROST_DB_SSLMODE=disable`
+1. Override these `.env` values for managed hosts/credentials:
+1. `MCP_DB_HOST`, `MCP_DB_USER`, `MCP_DB_PASSWORD`, `MCP_DB_SSLMODE`
+1. `BIFROST_DB_HOST`, `BIFROST_DB_USER`, `BIFROST_DB_PASSWORD`, `BIFROST_DB_SSLMODE`
+1. `BIFROST_REDIS_ADDR`
 
-2. Start with local profile:
+1. Start app services only (skip local Postgres/Redis containers):
 
 ```powershell
-docker compose --profile local up -d --build
+docker compose up -d --build mcp-server bifrost
 ```
 
 ## Health checks
@@ -65,3 +63,24 @@ docker compose --profile local up -d --build
 1. Aspire is still available for developer workflows; this compose stack is a runtime/deployment path.
 2. Keep one canonical `.env` and switch values by mode.
 3. For production, use strong secrets and TLS-required settings for managed databases.
+4. For Postgres migration/copy between environments, prefer `pg_dump`/`pg_restore` over copying DB files.
+
+## Postgres export and import scripts (Ubuntu/Linux)
+
+From repo root:
+
+```bash
+chmod +x scripts/export-postgres.sh scripts/import-postgres.sh
+```
+
+Export local compose Postgres DBs (`bifrost`, `ryan_mcp`):
+
+```bash
+./scripts/export-postgres.sh
+```
+
+Import from a backup folder (destructive restore):
+
+```bash
+./scripts/import-postgres.sh --backup-dir backups/postgres/<timestamp> --yes
+```

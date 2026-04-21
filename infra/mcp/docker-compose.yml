@@ -34,6 +34,9 @@ services:
 
     ports:
       - "${MCP_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ../../library:/data/library:ro
       - mcp_state:/data/state
@@ -64,6 +67,11 @@ services:
 
     ports:
       - "${BIFROST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - bifrost_data:/app/data
       - ./bifrost.config.json:/app/data/config.json:ro
@@ -78,7 +86,6 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    profiles: ["local"]
     restart: unless-stopped
     env_file:
       - .env
@@ -102,7 +109,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    profiles: ["local"]
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:

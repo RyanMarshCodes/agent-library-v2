@@ -1,6 +1,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+COPY Directory.Build.props ./
+COPY Ryan.MCP.slnx ./
 COPY src/Ryan.MCP.Mcp/Ryan.MCP.Mcp.csproj src/Ryan.MCP.Mcp/
 RUN dotnet restore src/Ryan.MCP.Mcp/Ryan.MCP.Mcp.csproj
 
