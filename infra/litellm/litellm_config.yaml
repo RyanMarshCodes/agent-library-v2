@@ -1,0 +1,38 @@
+# LiteLLM proxy config (production-oriented). Secrets live in .env / GitHub Secrets — not here.
+# Docs: https://docs.litellm.ai/docs/proxy/prod
+
+# Replace or extend with real providers; this public fake endpoint lets the proxy start without provider keys.
+model_list:
+  - model_name: fake-openai-endpoint
+    litellm_params:
+      model: openai/fake
+      api_key: fake-key
+      api_base: https://exampleopenaiendpoint-production.up.railway.app/
+
+general_settings:
+  alerting: ["slack"]
+  proxy_batch_write_at: 60
+  database_connection_pool_limit: 10
+  disable_error_logs: true
+  allow_requests_on_db_unavailable: false
+
+router_settings:
+  routing_strategy: simple-shuffle
+  redis_host: os.environ/REDIS_HOST
+  redis_port: os.environ/REDIS_PORT
+  redis_password: os.environ/REDIS_PASSWORD
+
+litellm_settings:
+  request_timeout: 600
+  set_verbose: false
+  json_logs: true
+  callbacks: ["otel"]
+  # callback_settings:
+  #   otel:
+  #     message_logging: false
+  cache: True
+  cache_params:
+    type: redis
+    host: os.environ/REDIS_HOST
+    port: os.environ/REDIS_PORT
+    password: os.environ/REDIS_PASSWORD

@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ryan.MCP.AppHost/Ryan.MCP.AppHost.csproj" />
+    <Project Path="src/Ryan.MCP.Mcp/Ryan.MCP.Mcp.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <AssemblyName>Ryan.MCP.Mcp</AssemblyName>
+    <!--
+      Analyzer suppressions retained intentionally for current code shape:
+      CA1848: Prefer LoggerMessage pattern (deferred while logging contracts are still evolving)
+      CA1873: Potentially expensive argument expression in logging (accepted for low-volume paths)
+      CA1305: Specify IFormatProvider (not applicable in most current formatting usage)
+      CA1859: Use concrete types where possible (deferred for readability and DI flexibility)
+      CA1861: Avoid constant arrays as arguments (low impact in current usage)
+      CA1310: Specify StringComparison for correctness/perf (legacy paths pending cleanup)
+      CA1822: Mark members static (tool method signatures kept instance-based for consistency)
+    -->
+    <NoWarn>$(NoWarn);CA1848;CA1873;CA1305;CA1859;CA1861;CA1310;CA1822</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <PackageReference Include="Microsoft.OpenAPI.Readers" Version="1.6.22" />
+    <PackageReference Include="Npgsql" Version="8.0.4" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.2" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.10.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.10.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Database\Migrations\*.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+
+</Project>

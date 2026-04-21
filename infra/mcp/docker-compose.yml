@@ -1,0 +1,129 @@
+name: ai-stack-runtime
+
+services:
+  mcp-server:
+    build:
+      context: ../../apps/mcp-server
+      dockerfile: src/Ryan.MCP.Mcp/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8081
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+      McpOptions__MemoryStore__Provider: postgres
+      McpOptions__MemoryStore__ConnectionString: Host=${MCP_DB_HOST};Port=${MCP_DB_PORT};Database=${MCP_DB_NAME};Username=${MCP_DB_USER};Password=${MCP_DB_PASSWORD};SSL Mode=${MCP_DB_SSLMODE};Timeout=15;Command Timeout=30
+      McpOptions__MemoryStore__CommandTimeoutSeconds: ${MCP_DB_COMMAND_TIMEOUT_SECONDS:-30}
+
+      McpOptions__Knowledge__ProjectSlug: ${MCP_PROJECT_SLUG:-ryan-mcp}
+      McpOptions__Knowledge__OfficialPath: /data/library/knowledge/global
+      McpOptions__Knowledge__OrganizationPath: /data/library/knowledge/backend
+      McpOptions__Knowledge__ProjectPath: /data/library/knowledge/frontend
+      McpOptions__Knowledge__IndexPath: /data/state/index
+
+      McpOptions__Agents__LibraryPath: /data/library/agents
+      McpOptions__Agents__LocalPath: /data/state/agents
+
+      McpOptions__Ingestion__AutoIngestOnStartup: ${MCP_AUTO_INGEST_ON_STARTUP:-true}
+      McpOptions__Ingestion__WatchForChanges: ${MCP_WATCH_FOR_CHANGES:-false}
+
+      # Optional token pass-through for remote connectors
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+
+    ports:
+      - "${MCP_PORT:-8081}:8081"
+    volumes:
+      - ../../library:/data/library:ro
+      - mcp_state:/data/state
+    networks:
+      - ai-stack
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  bifrost:
+    image: maximhq/bifrost:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_STYLE: ${LOG_STYLE:-json}
+
+      # Provider keys for Bifrost providers that reference env.* in config
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
+
+    ports:
+      - "${BIFROST_PORT:-8080}:8080"
+    volumes:
+      - bifrost_data:/app/data
+      - ./bifrost.config.json:/app/data/config.json:ro
+    networks:
+      - ai-stack
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["local"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${LOCAL_POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_ADMIN_PASSWORD:-postgres}
+      POSTGRES_DB: ${LOCAL_POSTGRES_DEFAULT_DB:-postgres}
+      POSTGRES_INITDB_ARGS: ${LOCAL_POSTGRES_INITDB_ARGS:---encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${LOCAL_POSTGRES_PORT:-5432}:5432"
+    networks:
+      - ai-stack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["local"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${LOCAL_REDIS_PORT:-6379}:6379"
+    networks:
+      - ai-stack
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  ai-stack:
+    name: ai_stack_net
+    driver: bridge
+
+volumes:
+  mcp_state:
+  bifrost_data:
+  postgres_data:
+  redis_data:

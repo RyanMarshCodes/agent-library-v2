@@ -1,0 +1,38 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "drop_excess_requests": false
+  },
+  "providers": {},
+  "config_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "env.BIFROST_DB_HOST",
+      "port": "env.BIFROST_DB_PORT",
+      "user": "env.BIFROST_DB_USER",
+      "password": "env.BIFROST_DB_PASSWORD",
+      "db_name": "env.BIFROST_DB_NAME",
+      "ssl_mode": "env.BIFROST_DB_SSLMODE"
+    }
+  },
+  "logs_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "env.BIFROST_DB_HOST",
+      "port": "env.BIFROST_DB_PORT",
+      "user": "env.BIFROST_DB_USER",
+      "password": "env.BIFROST_DB_PASSWORD",
+      "db_name": "env.BIFROST_DB_NAME",
+      "ssl_mode": "env.BIFROST_DB_SSLMODE"
+    }
+  },
+  "vector_store": {
+    "enabled": true,
+    "type": "redis",
+    "config": {
+      "addr": "env.BIFROST_REDIS_ADDR"
+    }
+  }
+}

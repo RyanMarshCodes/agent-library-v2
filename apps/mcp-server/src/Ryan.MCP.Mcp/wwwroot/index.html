@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ryan.MCP — Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #374151; border-radius: 9999px; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gray: { 950: '#0a0a0f' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="h-full text-gray-100 font-mono" x-data="app()" x-init="init()">
+
+<!-- Top nav -->
+<nav class="border-b border-gray-800 bg-gray-900 px-6 py-3 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <span class="text-indigo-400 font-bold text-lg">⬡ Ryan.MCP</span>
+    <span class="text-gray-500 text-sm">Management Console</span>
+  </div>
+  <div class="flex items-center gap-4 text-sm">
+    <span x-show="health.status === 'healthy'" class="text-green-400 flex items-center gap-1">
+      <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"></span> Online
+    </span>
+    <span x-show="health.status !== 'healthy'" class="text-red-400 flex items-center gap-1">
+      <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span> Offline
+    </span>
+    <span class="text-gray-600">|</span>
+    <span class="text-gray-400" x-text="'port ' + window.location.port"></span>
+  </div>
+</nav>
+
+<!-- Tab bar -->
+<div class="border-b border-gray-800 bg-gray-900 px-6 flex gap-1">
+  <template x-for="tab in tabs" :key="tab.id">
+    <button
+      @click="activeTab = tab.id"
+      :class="activeTab === tab.id
+        ? 'border-b-2 border-indigo-500 text-indigo-400 bg-gray-800'
+        : 'text-gray-500 hover:text-gray-300'"
+      class="px-4 py-3 text-sm transition-colors">
+      <span x-text="tab.icon"></span>
+      <span class="ml-1" x-text="tab.label"></span>
+      <span x-show="tab.badge !== null" class="ml-2 bg-gray-700 text-gray-300 text-xs px-1.5 py-0.5 rounded" x-text="tab.badge"></span>
+    </button>
+  </template>
+</div>
+
+<!-- Content -->
+<main class="p-6 overflow-auto" style="height: calc(100vh - 100px)">
+
+  <!-- ── AGENTS TAB ──────────────────────────────────────────────────────── -->
+  <div x-show="activeTab === 'agents'" x-cloak>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-white">Agents / Skills / Instructions</h2>
+      <div class="flex gap-2">
+        <button @click="triggerIngestAgents()" :disabled="loading.ingestAgents"
+          class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-300 disabled:opacity-50">
+          <span x-show="!loading.ingestAgents">⟳ Re-index</span>
+          <span x-show="loading.ingestAgents">Indexing…</span>
+        </button>
+        <label class="px-3 py-1.5 text-xs bg-indigo-700 hover:bg-indigo-600 rounded text-white cursor-pointer">
+          ↑ Upload Agent
+          <input type="file" multiple accept=".md,.txt,.yaml,.yml" class="hidden" @change="uploadAgents($event)">
+        </label>
+      </div>
+    </div>
+
+    <!-- Search + filter -->
+    <div class="flex gap-3 mb-4">
+      <input x-model="agentSearch" placeholder="Search agents…"
+        class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500">
+      <select x-model="agentScopeFilter"
+        class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+        <option value="">All scopes</option>
+        <template x-for="scope in agentScopes" :key="scope">
+          <option :value="scope" x-text="scope"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- Upload status -->
+    <div x-show="uploadStatus" class="mb-3 p-3 bg-gray-900 border border-gray-700 rounded text-sm text-green-400" x-text="uploadStatus"></div>
+
+    <!-- Agent list -->
+    <div x-show="loading.agents" class="text-gray-500 text-sm py-8 text-center">Loading agents…</div>
+    <div x-show="!loading.agents && filteredAgents.length === 0" class="text-gray-500 text-sm py-8 text-center">No agents found.</div>
+
+    <div class="grid gap-2" x-show="!loading.agents && filteredAgents.length > 0">
+      <template x-for="agent in filteredAgents" :key="agent.FileName">
+        <div class="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-lg p-4 cursor-pointer flex items-start justify-between group transition-colors"
+          @click="viewAgent(agent.Name)">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-semibold text-white text-sm" x-text="agent.Name"></span>
+              <span class="text-xs px-1.5 py-0.5 rounded"
+                :class="{
+                  'bg-blue-900 text-blue-300': agent.Format === 'claude',
+                  'bg-purple-900 text-purple-300': agent.Format === 'copilot',
+                  'bg-emerald-900 text-emerald-300': agent.Format === 'skill',
+                  'bg-gray-800 text-gray-400': agent.Format === 'generic'
+                }"
+                x-text="agent.Format"></span>
+              <span class="text-xs bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded" x-text="agent.Scope"></span>
+              <template x-for="tag in (agent.Tags || []).slice(0,3)" :key="tag">
+                <span class="text-xs bg-indigo-950 text-indigo-400 px-1.5 py-0.5 rounded" x-text="tag"></span>
+              </template>
+            </div>
+            <p class="text-gray-400 text-xs mt-1 truncate" x-text="agent.Description || agent.FileName"></p>
+          </div>
+          <div class="flex items-center gap-2 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button @click.stop="viewAgent(agent.Name)"
+              class="px-2 py-1 text-xs bg-gray-800 hover:bg-indigo-700 rounded text-gray-400 hover:text-white">View</button>
+            <button @click.stop="deleteAgent(agent.FileName)"
+              class="px-2 py-1 text-xs bg-gray-800 hover:bg-red-800 rounded text-gray-400 hover:text-red-300">Delete</button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Agent status footer -->
+    <div class="mt-4 text-xs text-gray-600" x-show="agentStatus.UpdatedUtc">
+      Last indexed: <span x-text="formatDate(agentStatus.UpdatedUtc)"></span>
+      · <span x-text="agentStatus.TotalAgents"></span> agents
+      · Roots: <span x-text="Object.keys(agentStatus.ScanRoots || {}).join(', ')"></span>
+    </div>
+  </div>
+
+  <!-- ── DOCUMENTS TAB ───────────────────────────────────────────────────── -->
+  <div x-show="activeTab === 'documents'" x-cloak>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-white">Knowledge Documents</h2>
+      <button @click="triggerIngestDocuments()" :disabled="loading.ingestDocs"
+        class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-300 disabled:opacity-50">
+        <span x-show="!loading.ingestDocs">⟳ Re-index</span>
+        <span x-show="loading.ingestDocs">Indexing…</span>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 mb-6">
+      <template x-for="tier in ['official','organization','project']" :key="tier">
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-semibold text-gray-200 capitalize" x-text="tier"></span>
+            <span class="text-xs text-gray-500"
+              x-text="(docStatus.ByTier || {})[tier] + ' files' || '0 files'"></span>
+          </div>
+          <div class="text-xs text-gray-600 mb-3 truncate"
+            x-text="(docStatus.Roots || {})[tier] || 'Not configured'"></div>
+          <label class="block w-full text-center px-2 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 cursor-pointer">
+            ↑ Upload to <span x-text="tier"></span>
+            <input type="file" multiple accept=".md,.txt,.json,.yaml,.yml" class="hidden" @change="uploadDocument($event, tier)">
+          </label>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="loading.documents" class="text-gray-500 text-sm py-4 text-center">Loading documents…</div>
+
+    <!-- Document list grouped by tier -->
+    <template x-for="tier in ['official','organization','project']" :key="tier">
+      <div x-show="documentsByTier[tier] && documentsByTier[tier].length > 0" class="mb-6">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2 capitalize" x-text="tier"></h3>
+        <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+          <template x-for="doc in documentsByTier[tier]" :key="doc.RelativePath">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800 last:border-0 hover:bg-gray-800 group">
+              <div>
+                <span class="text-sm text-gray-200" x-text="doc.RelativePath"></span>
+                <span class="ml-2 text-xs text-gray-600" x-text="formatBytes(doc.SizeBytes)"></span>
+              </div>
+              <button @click.stop="deleteDocument(tier, doc.RelativePath)"
+                class="opacity-0 group-hover:opacity-100 px-2 py-0.5 text-xs bg-gray-800 hover:bg-red-900 rounded text-gray-500 hover:text-red-300 transition-all">
+                Delete
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <div class="mt-2 text-xs text-gray-600" x-show="docStatus.UpdatedUtc">
+      Last indexed: <span x-text="formatDate(docStatus.UpdatedUtc)"></span>
+      · <span x-text="docStatus.TotalDocuments"></span> total documents
+    </div>
+  </div>
+
+  <!-- ── CONNECTORS TAB ─────────────────────────────────────────────────── -->
+  <div x-show="activeTab === 'connectors'" x-cloak>
+    <h2 class="text-lg font-semibold text-white mb-4">External MCP Connectors</h2>
+
+    <div x-show="loading.connectors" class="text-gray-500 text-sm py-8 text-center">Loading connectors…</div>
+
+    <div class="grid gap-3" x-show="!loading.connectors">
+      <template x-for="c in connectors" :key="c.Name">
+        <div class="bg-gray-900 border rounded-lg px-5 py-4 flex items-center justify-between"
+          :class="c.Enabled ? 'border-green-800' : 'border-gray-800'">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-white text-sm" x-text="c.Name"></span>
+              <span class="text-xs px-1.5 py-0.5 rounded"
+                :class="c.Enabled ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-500'"
+                x-text="c.Enabled ? 'enabled' : 'disabled'"></span>
+              <span class="text-xs bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded" x-text="c.Transport"></span>
+            </div>
+            <div class="text-xs text-gray-500 mt-1" x-text="c.Endpoint"></div>
+          </div>
+          <div class="text-xs text-gray-600" x-text="c.TimeoutMs + 'ms'"></div>
+        </div>
+      </template>
+    </div>
+
+    <p class="mt-4 text-xs text-gray-600">
+      Configure connectors in <code class="bg-gray-900 px-1 rounded">appsettings.json → McpOptions.ExternalConnectors</code>
+      or override endpoints via the AppHost environment variables.
+    </p>
+  </div>
+
+  <!-- ── STATUS TAB ─────────────────────────────────────────────────────── -->
+  <div x-show="activeTab === 'status'" x-cloak>
+    <h2 class="text-lg font-semibold text-white mb-4">Server Status</h2>
+
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Agents Indexed</div>
+        <div class="text-3xl font-bold text-indigo-400" x-text="agentStatus.TotalAgents ?? '—'"></div>
+        <div class="text-xs text-gray-600 mt-1">Last: <span x-text="formatDate(agentStatus.UpdatedUtc)"></span></div>
+      </div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Documents Indexed</div>
+        <div class="text-3xl font-bold text-emerald-400" x-text="docStatus.TotalDocuments ?? '—'"></div>
+        <div class="text-xs text-gray-600 mt-1">Last: <span x-text="formatDate(docStatus.UpdatedUtc)"></span></div>
+      </div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Connectors Enabled</div>
+        <div class="text-3xl font-bold text-yellow-400" x-text="connectors.filter(c=>c.Enabled).length"></div>
+        <div class="text-xs text-gray-600 mt-1">of <span x-text="connectors.length"></span> configured</div>
+      </div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">MCP Endpoint</div>
+        <div class="text-sm font-semibold text-white font-mono" x-text="window.location.origin + '/mcp'"></div>
+        <div class="text-xs text-gray-600 mt-1">JSON-RPC · Streamable HTTP</div>
+      </div>
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-400 mb-2">Agent Scopes</h3>
+    <div class="grid grid-cols-3 gap-2 mb-6">
+      <template x-for="[scope, count] in Object.entries(agentStatus.ByScope || {})" :key="scope">
+        <div class="bg-gray-900 border border-gray-800 rounded p-3 flex justify-between items-center">
+          <span class="text-sm text-gray-300" x-text="scope"></span>
+          <span class="text-sm font-bold text-indigo-400" x-text="count"></span>
+        </div>
+      </template>
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-400 mb-2">Agent Formats</h3>
+    <div class="grid grid-cols-4 gap-2 mb-6">
+      <template x-for="[format, count] in Object.entries(agentStatus.ByFormat || {})" :key="format">
+        <div class="bg-gray-900 border border-gray-800 rounded p-3 flex justify-between items-center">
+          <span class="text-sm text-gray-300" x-text="format"></span>
+          <span class="text-sm font-bold text-emerald-400" x-text="count"></span>
+        </div>
+      </template>
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-400 mb-2">IDE Integration</h3>
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3 text-sm">
+      <p class="text-gray-400">Connect to this MCP server from any IDE using the Streamable HTTP transport:</p>
+      <div class="space-y-2">
+        <div class="bg-gray-950 border border-gray-800 rounded p-3">
+          <div class="text-xs text-gray-500 mb-1">Claude Code (~/.claude/mcp.json)</div>
+          <pre class="text-xs text-green-300" x-text='JSON.stringify({"ryan-mcp": {"type": "http", "url": window.location.origin + "/mcp"}}, null, 2)'></pre>
+        </div>
+        <div class="bg-gray-950 border border-gray-800 rounded p-3">
+          <div class="text-xs text-gray-500 mb-1">Cursor / OpenCode (mcp config)</div>
+          <pre class="text-xs text-blue-300" x-text='JSON.stringify({"mcpServers": {"ryan-mcp": {"url": window.location.origin + "/mcp"}}}, null, 2)'></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── AGENT VIEWER MODAL ──────────────────────────────────────────────────── -->
+<div x-show="modal.open" x-cloak
+  class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6"
+  @click.self="modal.open = false">
+  <div class="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+      <div>
+        <h3 class="font-semibold text-white" x-text="modal.agent?.Name"></h3>
+        <div class="flex gap-2 mt-1">
+          <span class="text-xs text-gray-500" x-text="modal.agent?.FileName"></span>
+          <span class="text-xs text-indigo-400" x-text="modal.agent?.Scope"></span>
+          <span class="text-xs text-gray-500" x-text="modal.agent?.Format"></span>
+        </div>
+      </div>
+      <button @click="modal.open = false" class="text-gray-500 hover:text-white text-xl leading-none">✕</button>
+    </div>
+    <div class="flex-1 overflow-auto p-5 scrollbar-thin">
+      <div class="text-xs text-gray-500 mb-2" x-show="modal.agent?.Description" x-text="modal.agent?.Description"></div>
+      <div class="flex gap-1 flex-wrap mb-3" x-show="modal.agent?.Tags?.length">
+        <template x-for="tag in (modal.agent?.Tags || [])" :key="tag">
+          <span class="text-xs bg-indigo-950 text-indigo-400 px-1.5 py-0.5 rounded" x-text="tag"></span>
+        </template>
+      </div>
+      <pre class="text-xs text-gray-300 bg-gray-950 border border-gray-800 rounded p-4 leading-relaxed" x-text="modal.agent?.RawContent"></pre>
+    </div>
+    <div class="px-5 py-3 border-t border-gray-800 flex justify-between text-xs text-gray-600">
+      <span>Indexed: <span x-text="formatDate(modal.agent?.IndexedUtc)"></span></span>
+      <button @click="copyToClipboard(modal.agent?.RawContent)"
+        class="hover:text-gray-300 transition-colors">⎘ Copy content</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ──────────────────────────────────────────────────────────────── -->
+<div x-show="toast.show" x-cloak x-transition
+  class="fixed bottom-6 right-6 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm shadow-xl"
+  :class="toast.error ? 'border-red-700 text-red-300' : 'text-green-300'"
+  x-text="toast.message">
+</div>
+
+<script>
+function app() {
+  return {
+    activeTab: 'agents',
+    tabs: [
+      { id: 'agents',     icon: '◈', label: 'Agents',     badge: null },
+      { id: 'documents',  icon: '◉', label: 'Documents',  badge: null },
+      { id: 'connectors', icon: '⬡', label: 'Connectors', badge: null },
+      { id: 'status',     icon: '◎', label: 'Status',     badge: null },
+    ],
+    health: { status: '' },
+    agents: [],
+    agentStatus: {},
+    agentSearch: '',
+    agentScopeFilter: '',
+    docStatus: {},
+    connectors: [],
+    uploadStatus: '',
+    modal: { open: false, agent: null },
+    toast: { show: false, message: '', error: false },
+    loading: {
+      agents: true,
+      documents: true,
+      connectors: true,
+      ingestAgents: false,
+      ingestDocs: false,
+    },
+
+    get agentScopes() {
+      return [...new Set(this.agents.map(a => a.Scope))].sort();
+    },
+
+    get filteredAgents() {
+      const q = this.agentSearch.toLowerCase();
+      return this.agents.filter(a => {
+        const matchSearch = !q ||
+          a.Name.toLowerCase().includes(q) ||
+          (a.Description || '').toLowerCase().includes(q) ||
+          (a.Tags || []).some(t => t.toLowerCase().includes(q)) ||
+          a.FileName.toLowerCase().includes(q);
+        const matchScope = !this.agentScopeFilter || a.Scope === this.agentScopeFilter;
+        return matchSearch && matchScope;
+      });
+    },
+
+    get documentsByTier() {
+      const docs = this.docStatus.documents || [];
+      return {
+        official: docs.filter(d => d.Tier === 'official'),
+        organization: docs.filter(d => d.Tier === 'organization'),
+        project: docs.filter(d => d.Tier === 'project'),
+      };
+    },
+
+    async init() {
+      await Promise.all([
+        this.fetchHealth(),
+        this.fetchAgents(),
+        this.fetchDocuments(),
+        this.fetchConnectors(),
+      ]);
+      this.updateBadges();
+    },
+
+    async fetchHealth() {
+      try {
+        const r = await fetch('/health');
+        this.health = await r.json();
+      } catch { this.health = { status: 'error' }; }
+    },
+
+    async fetchAgents() {
+      this.loading.agents = true;
+      try {
+        const [agentsRes, statusRes] = await Promise.all([
+          fetch('/api/agents'),
+          fetch('/api/agents/status'),
+        ]);
+        const data = await agentsRes.json();
+        this.agents = data.agents || [];
+        this.agentStatus = await statusRes.json();
+      } catch (e) {
+        this.showToast('Failed to load agents', true);
+      } finally {
+        this.loading.agents = false;
+        this.updateBadges();
+      }
+    },
+
+    async fetchDocuments() {
+      this.loading.documents = true;
+      try {
+        const r = await fetch('/api/documents');
+        this.docStatus = await r.json();
+      } catch (e) {
+        this.showToast('Failed to load documents', true);
+      } finally {
+        this.loading.documents = false;
+        this.updateBadges();
+      }
+    },
+
+    async fetchConnectors() {
+      this.loading.connectors = true;
+      try {
+        const r = await fetch('/api/connectors');
+        const data = await r.json();
+        this.connectors = data.connectors || [];
+      } catch {
+        this.showToast('Failed to load connectors', true);
+      } finally {
+        this.loading.connectors = false;
+        this.updateBadges();
+      }
+    },
+
+    updateBadges() {
+      this.tabs.find(t => t.id === 'agents').badge = this.agentStatus.TotalAgents ?? null;
+      this.tabs.find(t => t.id === 'documents').badge = this.docStatus.TotalDocuments ?? null;
+      this.tabs.find(t => t.id === 'connectors').badge = this.connectors.filter(c => c.Enabled).length || null;
+    },
+
+    async viewAgent(name) {
+      try {
+        const r = await fetch(`/api/agents/${encodeURIComponent(name)}`);
+        if (!r.ok) { this.showToast(`Agent '${name}' not found`, true); return; }
+        this.modal.agent = await r.json();
+        this.modal.open = true;
+      } catch {
+        this.showToast('Failed to load agent content', true);
+      }
+    },
+
+    async deleteAgent(fileName) {
+      if (!confirm(`Delete agent file '${fileName}'? This cannot be undone.`)) return;
+      try {
+        const r = await fetch(`/api/agents/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+        const data = await r.json();
+        if (!r.ok) { this.showToast(data.error, true); return; }
+        this.showToast(data.message);
+        await this.fetchAgents();
+      } catch {
+        this.showToast('Failed to delete agent', true);
+      }
+    },
+
+    async uploadAgents(event) {
+      const files = event.target.files;
+      if (!files.length) return;
+      const form = new FormData();
+      for (const f of files) form.append('files', f);
+      try {
+        const r = await fetch('/api/agents/upload', { method: 'POST', body: form });
+        const data = await r.json();
+        const uploaded = (data.uploaded || []).length;
+        const failed = (data.failed || []).length;
+        this.showToast(`Uploaded ${uploaded} agent(s)${failed ? `, ${failed} failed` : ''}`);
+        await this.fetchAgents();
+      } catch {
+        this.showToast('Upload failed', true);
+      }
+      event.target.value = '';
+    },
+
+    async uploadDocument(event, tier) {
+      const files = event.target.files;
+      if (!files.length) return;
+      const form = new FormData();
+      for (const f of files) form.append('files', f);
+      try {
+        const r = await fetch(`/api/documents/${tier}/upload`, { method: 'POST', body: form });
+        const data = await r.json();
+        const uploaded = (data.uploaded || []).length;
+        this.showToast(`Uploaded ${uploaded} document(s) to '${tier}'`);
+        await this.fetchDocuments();
+      } catch {
+        this.showToast('Upload failed', true);
+      }
+      event.target.value = '';
+    },
+
+    async deleteDocument(tier, relativePath) {
+      if (!confirm(`Delete '${relativePath}' from '${tier}'?`)) return;
+      try {
+        const r = await fetch(`/api/documents/${tier}/${encodeURIComponent(relativePath)}`, { method: 'DELETE' });
+        const data = await r.json();
+        if (!r.ok) { this.showToast(data.error, true); return; }
+        this.showToast(data.message);
+        await this.fetchDocuments();
+      } catch {
+        this.showToast('Failed to delete document', true);
+      }
+    },
+
+    async triggerIngestAgents() {
+      this.loading.ingestAgents = true;
+      try {
+        await fetch('/api/agents/ingest', { method: 'POST' });
+        await this.fetchAgents();
+        this.showToast('Agent re-index complete');
+      } catch {
+        this.showToast('Re-index failed', true);
+      } finally {
+        this.loading.ingestAgents = false;
+      }
+    },
+
+    async triggerIngestDocuments() {
+      this.loading.ingestDocs = true;
+      try {
+        await fetch('/api/documents/ingest', { method: 'POST' });
+        await this.fetchDocuments();
+        this.showToast('Document re-index complete');
+      } catch {
+        this.showToast('Re-index failed', true);
+      } finally {
+        this.loading.ingestDocs = false;
+      }
+    },
+
+    async copyToClipboard(text) {
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
+      this.showToast('Copied to clipboard');
+    },
+
+    showToast(message, error = false) {
+      this.toast = { show: true, message, error };
+      setTimeout(() => { this.toast.show = false; }, 3000);
+    },
+
+    formatDate(dateStr) {
+      if (!dateStr) return '—';
+      try {
+        return new Date(dateStr).toLocaleString();
+      } catch { return dateStr; }
+    },
+
+    formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    },
+  };
+}
+</script>
+</body>
+</html>

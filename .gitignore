@@ -1,0 +1,89 @@
+# --- Secrets & local env (never commit) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets.json
+**/appsettings.*.local.json
+# Uncomment only if Development settings must never be committed:
+# **/appsettings.Development.json
+
+# --- .NET / Visual Studio / Rider ---
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+out/
+*.user
+*.userosscache
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+TestResults/
+*.coverage
+*.coveragexml
+.vs/
+.idea/
+*.DotSettings.user
+
+# --- NuGet / build ---
+*.nuget.props
+*.nuget.targets
+packages/
+
+# --- Node (if scripts/docs tooling) ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- Python (if any automation) ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- Docker / Compose local overrides ---
+**/docker-compose.override.yml
+docker-compose.override.yaml
+
+# --- Terraform (if used under infra/) ---
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# --- OS & editors ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+
+# --- Local DBs & tooling noise (SQLite, local MCP caches) ---
+*.db-shm
+*.db-wal
+.bifrost/
+
+# --- Installers / large binaries (do not commit) ---
+*.msi
+*.iso
+
+# --- Logs & temp ---
+*.log
+tmp/
+temp/
+.cache/
+
+# --- Optional: uncomment if generated indexes are produced only in CI ---
+# library/generated/

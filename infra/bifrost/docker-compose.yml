@@ -1,0 +1,83 @@
+# Bifrost gateway — see https://docs.getbifrost.ai/quickstart/gateway/setting-up
+#
+# Environment: copy .env.example to .env in this folder (Compose requires .env for env_file). Values are used for
+# compose interpolation (${VAR:-default}) and injected into every service below.
+
+name: bifrost
+
+services:
+  bifrost:
+    image: maximhq/bifrost:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    environment:
+      # Bind on all interfaces inside the container so published ports work (default APP_HOST is localhost in CLI docs).
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_STYLE: ${LOG_STYLE:-json}
+    volumes:
+      - bifrost_data:/app/data
+      # File-based config (Postgres / Redis hosts below). Uncomment after copying config.example.json → config.json and editing secrets.
+      # - ./config.json:/app/data/config.json:ro
+    networks:
+      - bifrost
+    # Postgres/Redis are optional (profiles). Compose cannot reference profiled services in depends_on
+    # without breaking the default stack, so start order is handled by restart policies and healthchecks.
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bifrost}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-bifrost}
+      # Bifrost requires UTF-8 DB encoding (https://docs.getbifrost.ai/quickstart/gateway/setting-up#postgresql-utf8-requirement).
+      # Applied only on first init (empty data volume). To re-init, remove the postgres_data volume. Override via .env if needed.
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bifrost
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes:
+      - redis_data:/data
+    networks:
+      - bifrost
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  bifrost:
+    name: bifrost_net
+    driver: bridge
+
+volumes:
+  bifrost_data:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,8 @@
+{
+  "appHost": {
+    "path": "./src/Ryan.MCP.AppHost/Ryan.MCP.AppHost.csproj"
+  },
+  "features": {
+    "defaultWatchEnabled": true
+  }
+}
