@@ -27,7 +27,43 @@
         "name": "ryan",
         "connection_type": "http",
         "client_id": "ryan-mcp-server",
-        "connection_string": "http://mcp-server:8081/mcp"
+        "connection_string": "http://mcp-server:8081/mcp",
+        "tools_to_execute": [
+          "*"
+        ],
+        "tools_to_auto_execute": [
+          "list_standards",
+          "read_document",
+          "search_documents",
+          "knowledge_retrieve",
+          "ingestion_status",
+          "knowledge_status",
+          "list_agents",
+          "get_agent",
+          "search_agents",
+          "list_agent_scopes",
+          "agent_status",
+          "get_context",
+          "scan_project",
+          "memory_recall",
+          "memory_read",
+          "memory_status",
+          "get_model_mapping",
+          "list_model_mappings",
+          "recommend_model",
+          "list_llm_providers",
+          "list_workflows",
+          "get_workflow",
+          "resolve_workflow_trigger",
+          "list_external_connectors",
+          "list_external_mcp_tools",
+          "parse_openapi",
+          "analyze_runtime_logs",
+          "summarize_errors",
+          "incident_timeline",
+          "analyze_diff",
+          "fetch"
+        ]
       }
     ]
   },
