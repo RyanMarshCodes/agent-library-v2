@@ -4,6 +4,33 @@
     "drop_excess_requests": false
   },
   "providers": {},
+  "governance": {
+    "auth_config": {
+      "admin_username": "env.ADMIN_USERNAME",
+      "admin_password": "env.ADMIN_PASSWORD",
+      "is_enabled": true,
+      "disable_auth_on_inference": false
+    },
+    "virtual_keys": [
+      {
+        "id": "vk-ryan-prod",
+        "is_active": true,
+        "name": "ryan-prod",
+        "description": "Ryan's production virtual key",
+        "value": "env.INITIAL_VIRTUAL_KEY"
+      }
+    ]
+  },
+  "mcp": {
+    "client_configs": [
+      {
+        "name": "ryan",
+        "connection_type": "http",
+        "client_id": "ryan-mcp-server",
+        "connection_string": "http://localhost:8081/mcp"
+      }
+    ]
+  },
   "config_store": {
     "enabled": true,
     "type": "postgres",

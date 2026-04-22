@@ -70,8 +70,7 @@ services:
       LOG_STYLE: ${LOG_STYLE:-json}
     volumes:
       - bifrost_data:/app/data
-      # File-based config (Postgres / Redis hosts below). Uncomment after copying config.example.json → config.json and editing secrets.
-      # - ./infra/bifrost/config.json:/app/data/config.json:ro
+      - ./infra/bifrost/bifrost.config.json:/app/data/config.json:ro
     networks:
       - bifrost
     # Postgres/Redis are optional (profiles). Compose cannot reference profiled services in depends_on
@@ -97,6 +96,7 @@ services:
       POSTGRES_INITDB_ARGS: ${LOCAL_POSTGRES_INITDB_ARGS:---encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/mcp/initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - bifrost
     healthcheck:
