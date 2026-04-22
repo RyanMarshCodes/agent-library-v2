@@ -57,7 +57,6 @@ services:
     build:
       context: ./infra/bifrost
       dockerfile: Dockerfile
-    image: bifrost-with-mcp-tools:latest
     restart: unless-stopped
     env_file:
       - .env
