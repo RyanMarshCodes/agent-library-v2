@@ -2,12 +2,19 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class PrTools(ILogger<PrTools> logger)
+public sealed class PrTools(
+    ILogger<PrTools> logger,
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    PolicyPreflightService preflight)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -35,8 +42,8 @@ public sealed class PrTools(ILogger<PrTools> logger)
 
         try
         {
-            var (changedFiles, diffOutput) = await GetGitDiffAsync(gitDir, baseBranch, cancellationToken);
-            var commitLog = await GetCommitLogAsync(gitDir, baseBranch, cancellationToken);
+            var (changedFiles, diffOutput) = await GetGitDiffAsync(gitDir, baseBranch, commandAllowlist, metrics, cancellationToken);
+            var commitLog = await GetCommitLogAsync(gitDir, baseBranch, commandAllowlist, metrics, cancellationToken);
 
             var analysis = AnalyzeChanges(changedFiles, diffOutput, commitLog);
 
@@ -69,11 +76,311 @@ public sealed class PrTools(ILogger<PrTools> logger)
         }
     }
 
-    private static async Task<(List<string> changedFiles, string diffOutput)> GetGitDiffAsync(
-        string gitDir, string baseBranch, CancellationToken ct)
+    [McpServerTool(Name = "pr_checks_status")]
+    [Description("Get PR checks status via gh with actionable hints.")]
+    public async Task<string> PrChecksStatus(
+        [Description("PR number to inspect.")] int prNumber,
+        [Description("Working directory with git commands (optional, defaults to current).")] string? workingDirectory = null,
+        CancellationToken ct = default)
     {
-        var filesResult = await RunGitCommandAsync(gitDir, $"diff {baseBranch}...HEAD --name-only", ct);
-        var diffResult = await RunGitCommandAsync(gitDir, $"diff {baseBranch}...HEAD", ct);
+        using var scope = logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["ToolName"] = "PrTools.PrChecksStatus",
+            ["PrNumber"] = prNumber,
+            ["WorkingDirectory"] = workingDirectory
+        });
+
+        if (prNumber <= 0)
+        {
+            return JsonSerializer.Serialize(new { error = "prNumber must be > 0" }, JsonOptions);
+        }
+
+        var gitDir = string.IsNullOrWhiteSpace(workingDirectory) ? "." : workingDirectory;
+        var result = await RunCommandAsync(gitDir, "gh", $"pr checks {prNumber} --json name,state,link,bucket", commandAllowlist, metrics, ct);
+        if (!result.Success)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                status = "error",
+                prNumber,
+                stderr = Truncate(result.StdErr, 2000),
+                hint = BuildGhHint(result.StdErr)
+            }, JsonOptions);
+        }
+
+        JsonElement checks;
+        try
+        {
+            checks = JsonDocument.Parse(result.StdOut).RootElement.Clone();
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new
+            {
+                status = "ok",
+                prNumber,
+                raw = Truncate(result.StdOut, 4000),
+                hint = "Could not parse gh JSON output. Inspect the raw field."
+            }, JsonOptions);
+        }
+
+        var total = 0;
+        var success = 0;
+        var failed = 0;
+        var pending = 0;
+
+        if (checks.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var check in checks.EnumerateArray())
+            {
+                total++;
+                var state = check.TryGetProperty("state", out var value)
+                    ? value.GetString() ?? ""
+                    : "";
+
+                if (state.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase))
+                {
+                    success++;
+                }
+                else if (state.Equals("FAILURE", StringComparison.OrdinalIgnoreCase)
+                         || state.Equals("ERROR", StringComparison.OrdinalIgnoreCase))
+                {
+                    failed++;
+                }
+                else
+                {
+                    pending++;
+                }
+            }
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            status = "ok",
+            prNumber,
+            total,
+            success,
+            failed,
+            pending,
+            checks
+        }, JsonOptions);
+    }
+
+    [McpServerTool(Name = "pr_create_or_update")]
+    [Description("Create PR if missing, or update title/body/base if it already exists. Requires approval token.")]
+    public async Task<string> PrCreateOrUpdate(
+        [Description("PR title.")] string title,
+        [Description("PR body markdown.")] string body,
+        [Description("Base branch (default: main).")] string baseBranch = "main",
+        [Description("Head branch (default: current branch).")] string? headBranch = null,
+        [Description("Create as draft when creating new PR.")] bool draft = false,
+        [Description("Approval token for mutate policy.")] string? approvalToken = null,
+        [Description("Working directory for git/gh commands (optional).")] string? workingDirectory = null,
+        CancellationToken ct = default)
+    {
+        var decision = preflight.Evaluate("pr_create_or_update", "mutate", approvalToken);
+        if (!decision.Allowed)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                error = "policy_denied",
+                decision.Category,
+                decision.RequiresApproval,
+                decision.Reason,
+                decision.Hints
+            }, JsonOptions);
+        }
+
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
+        {
+            return JsonSerializer.Serialize(new { error = "title and body are required" }, JsonOptions);
+        }
+
+        if (!IsSafeRef(baseBranch))
+        {
+            return JsonSerializer.Serialize(new { error = "Invalid baseBranch format" }, JsonOptions);
+        }
+
+        var gitDir = string.IsNullOrWhiteSpace(workingDirectory) ? "." : workingDirectory;
+        var head = headBranch;
+        if (string.IsNullOrWhiteSpace(head))
+        {
+            var branchResult = await RunCommandAsync(gitDir, "git", "rev-parse --abbrev-ref HEAD", commandAllowlist, metrics, ct);
+            if (!branchResult.Success)
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    error = "Unable to determine current branch",
+                    stderr = Truncate(branchResult.StdErr, 1200)
+                }, JsonOptions);
+            }
+
+            head = branchResult.StdOut.Trim();
+        }
+
+        if (!IsSafeRef(head!))
+        {
+            return JsonSerializer.Serialize(new { error = "Invalid headBranch format" }, JsonOptions);
+        }
+
+        var viewResult = await RunCommandAsync(
+            gitDir,
+            "gh",
+            $"pr view {EscapeArg(head!)} --json number,url,title,state,isDraft",
+            commandAllowlist,
+            metrics,
+            ct);
+
+        if (viewResult.Success)
+        {
+            using var json = JsonDocument.Parse(viewResult.StdOut);
+            var number = json.RootElement.GetProperty("number").GetInt32();
+            var url = json.RootElement.GetProperty("url").GetString();
+
+            var editResult = await RunCommandAsync(
+                gitDir,
+                "gh",
+                $"pr edit {number} --title {EscapeArg(title)} --body {EscapeArg(body)} --base {EscapeArg(baseBranch)}",
+                commandAllowlist,
+                metrics,
+                ct);
+
+            return editResult.Success
+                ? JsonSerializer.Serialize(new
+                {
+                    status = "updated",
+                    number,
+                    url
+                }, JsonOptions)
+                : JsonSerializer.Serialize(new
+                {
+                    status = "error",
+                    action = "update",
+                    stderr = Truncate(editResult.StdErr, 2000),
+                    hint = BuildGhHint(editResult.StdErr)
+                }, JsonOptions);
+        }
+
+        var createArgs = $"pr create --title {EscapeArg(title)} --body {EscapeArg(body)} --base {EscapeArg(baseBranch)} --head {EscapeArg(head!)}";
+        if (draft)
+        {
+            createArgs += " --draft";
+        }
+
+        var createResult = await RunCommandAsync(gitDir, "gh", createArgs, commandAllowlist, metrics, ct);
+        return createResult.Success
+            ? JsonSerializer.Serialize(new
+            {
+                status = "created",
+                output = Truncate(createResult.StdOut.Trim(), 1000)
+            }, JsonOptions)
+            : JsonSerializer.Serialize(new
+            {
+                status = "error",
+                action = "create",
+                stderr = Truncate(createResult.StdErr, 2000),
+                hint = BuildGhHint(createResult.StdErr)
+            }, JsonOptions);
+    }
+
+    [McpServerTool(Name = "issue_sync")]
+    [Description("Sync issue state/comment/labels via gh. Requires approval token.")]
+    public async Task<string> IssueSync(
+        [Description("Issue number.")] int issueNumber,
+        [Description("Action: comment|close|reopen|label")] string action,
+        [Description("Comment body when action=comment; optional close note for action=close.")] string? comment = null,
+        [Description("Comma-separated labels when action=label.")] string? labelsCsv = null,
+        [Description("Approval token for mutate policy.")] string? approvalToken = null,
+        [Description("Working directory for git/gh commands (optional).")] string? workingDirectory = null,
+        CancellationToken ct = default)
+    {
+        var decision = preflight.Evaluate("issue_sync", "mutate", approvalToken);
+        if (!decision.Allowed)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                error = "policy_denied",
+                decision.Category,
+                decision.RequiresApproval,
+                decision.Reason
+            }, JsonOptions);
+        }
+
+        if (issueNumber <= 0)
+        {
+            return JsonSerializer.Serialize(new { error = "issueNumber must be > 0" }, JsonOptions);
+        }
+
+        var gitDir = string.IsNullOrWhiteSpace(workingDirectory) ? "." : workingDirectory;
+        var normalizedAction = action.Trim().ToLowerInvariant();
+        string commandArgs;
+
+        switch (normalizedAction)
+        {
+            case "comment":
+                if (string.IsNullOrWhiteSpace(comment))
+                {
+                    return JsonSerializer.Serialize(new { error = "comment is required when action=comment" }, JsonOptions);
+                }
+
+                commandArgs = $"issue comment {issueNumber} --body {EscapeArg(comment)}";
+                break;
+
+            case "close":
+                commandArgs = string.IsNullOrWhiteSpace(comment)
+                    ? $"issue close {issueNumber}"
+                    : $"issue close {issueNumber} --comment {EscapeArg(comment)}";
+                break;
+
+            case "reopen":
+                commandArgs = $"issue reopen {issueNumber}";
+                break;
+
+            case "label":
+                if (string.IsNullOrWhiteSpace(labelsCsv))
+                {
+                    return JsonSerializer.Serialize(new { error = "labelsCsv is required when action=label" }, JsonOptions);
+                }
+
+                commandArgs = $"issue edit {issueNumber} --add-label {EscapeArg(labelsCsv)}";
+                break;
+
+            default:
+                return JsonSerializer.Serialize(new
+                {
+                    error = "Invalid action",
+                    allowed = new[] { "comment", "close", "reopen", "label" }
+                }, JsonOptions);
+        }
+
+        var result = await RunCommandAsync(gitDir, "gh", commandArgs, commandAllowlist, metrics, ct);
+        return result.Success
+            ? JsonSerializer.Serialize(new
+            {
+                status = "ok",
+                issueNumber,
+                action = normalizedAction,
+                output = Truncate(result.StdOut.Trim(), 1000)
+            }, JsonOptions)
+            : JsonSerializer.Serialize(new
+            {
+                status = "error",
+                issueNumber,
+                action = normalizedAction,
+                stderr = Truncate(result.StdErr, 2000),
+                hint = BuildGhHint(result.StdErr)
+            }, JsonOptions);
+    }
+
+    private static async Task<(List<string> changedFiles, string diffOutput)> GetGitDiffAsync(
+        string gitDir,
+        string baseBranch,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
+    {
+        var filesResult = await RunGitCommandAsync(gitDir, $"diff {baseBranch}...HEAD --name-only", commandAllowlist, metrics, ct);
+        var diffResult = await RunGitCommandAsync(gitDir, $"diff {baseBranch}...HEAD", commandAllowlist, metrics, ct);
 
         var files = filesResult
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -84,16 +391,46 @@ public sealed class PrTools(ILogger<PrTools> logger)
         return (files, diffResult);
     }
 
-    private static async Task<string> GetCommitLogAsync(string gitDir, string baseBranch, CancellationToken ct)
+    private static async Task<string> GetCommitLogAsync(
+        string gitDir,
+        string baseBranch,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
-        return await RunGitCommandAsync(gitDir, $"log {baseBranch}...HEAD --oneline", ct);
+        return await RunGitCommandAsync(gitDir, $"log {baseBranch}...HEAD --oneline", commandAllowlist, metrics, ct);
     }
 
-    private static async Task<string> RunGitCommandAsync(string workingDir, string args, CancellationToken ct)
+    private static async Task<string> RunGitCommandAsync(
+        string workingDir,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var result = await RunCommandAsync(workingDir, "git", args, commandAllowlist, metrics, ct);
+        return result.Success ? result.StdOut : $"{result.StdOut}\n{result.StdErr}";
+    }
+
+    private static async Task<CommandResult> RunCommandAsync(
+        string workingDir,
+        string command,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
+    {
+        var decision = commandAllowlist.Evaluate("pr_tools", command);
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return new CommandResult(false, -1, string.Empty, decision.Reason);
+        }
+
+        metrics.RecordExecuteAllow();
         var psi = new ProcessStartInfo
         {
-            FileName = "git",
+            FileName = command,
             Arguments = args,
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
@@ -103,11 +440,16 @@ public sealed class PrTools(ILogger<PrTools> logger)
         };
 
         using var process = Process.Start(psi);
-        if (process == null) return "";
+        if (process == null)
+        {
+            return new CommandResult(false, -1, string.Empty, "Failed to start process.");
+        }
 
         var output = await process.StandardOutput.ReadToEndAsync(ct);
+        var error = await process.StandardError.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
-        return output;
+
+        return new CommandResult(process.ExitCode == 0, process.ExitCode, output, error);
     }
 
     private static PrAnalysis AnalyzeChanges(List<string> changedFiles, string diffOutput, string commitLog)
@@ -293,6 +635,26 @@ public sealed class PrTools(ILogger<PrTools> logger)
         return sb.ToString();
     }
 
+    private static string EscapeArg(string value)
+        => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength] + "...(truncated)";
+
+    private static bool IsSafeRef(string value)
+        => Regex.IsMatch(value, @"^[A-Za-z0-9._/\-]+$");
+
+    private static string BuildGhHint(string stderr)
+    {
+        if (stderr.Contains("not logged in", StringComparison.OrdinalIgnoreCase))
+            return "Run 'gh auth login' and retry.";
+        if (stderr.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return "Verify the PR/issue number and repository context.";
+        if (stderr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase))
+            return "Set workingDirectory to a valid git repository path.";
+        return "Review gh stderr and retry with corrected arguments.";
+    }
+
     private sealed class PrAnalysis
     {
         public List<string> ChangedFiles { get; set; } = [];
@@ -307,4 +669,6 @@ public sealed class PrTools(ILogger<PrTools> logger)
         public string RollbackPlan { get; set; } = "";
         public List<string> ReviewerFocus { get; set; } = [];
     }
+
+    private sealed record CommandResult(bool Success, int ExitCode, string StdOut, string StdErr);
 }

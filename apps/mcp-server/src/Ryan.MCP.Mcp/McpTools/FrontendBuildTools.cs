@@ -2,11 +2,16 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class FrontendBuildTools(ILogger<FrontendBuildTools> logger)
+public sealed class FrontendBuildTools(
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    ILogger<FrontendBuildTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -61,7 +66,7 @@ public sealed class FrontendBuildTools(ILogger<FrontendBuildTools> logger)
             attempts.Add(new BuildAttempt { Number = attempt, StartTime = DateTime.UtcNow });
 
             var runArgs = pm.RunPrefix + script;
-            var (success, output, error) = await RunCommandAsync(workDir, pm.Command, runArgs, cancellationToken);
+            var (success, output, error) = await RunCommandAsync(workDir, pm.Command, runArgs, commandAllowlist, metrics, cancellationToken);
 
             var combined = output + "\n" + error;
             attempts[attempt - 1].Success = success;
@@ -269,8 +274,21 @@ public sealed class FrontendBuildTools(ILogger<FrontendBuildTools> logger)
         s.Length <= maxLen ? s : s[..maxLen] + "...(truncated)";
 
     private static async Task<(bool success, string output, string error)> RunCommandAsync(
-        string workingDir, string fileName, string args, CancellationToken ct)
+        string workingDir,
+        string fileName,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var decision = commandAllowlist.Evaluate("fix_frontend_build", fileName);
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return (false, string.Empty, decision.Reason);
+        }
+
+        metrics.RecordExecuteAllow();
         var resolvedFileName = ResolveCommand(fileName);
         var psi = new ProcessStartInfo
         {

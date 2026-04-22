@@ -2,11 +2,16 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class NpmHygieneTools(ILogger<NpmHygieneTools> logger)
+public sealed class NpmHygieneTools(
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    ILogger<NpmHygieneTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -38,7 +43,7 @@ public sealed class NpmHygieneTools(ILogger<NpmHygieneTools> logger)
                 }
 
                 var (auditSuccess, auditOutput, auditError) =
-                    await RunCommandAsync(workDir, pm.Command, pm.AuditArgs, cancellationToken);
+                    await RunCommandAsync(workDir, pm.Command, pm.AuditArgs, commandAllowlist, metrics, cancellationToken);
                 result.Vulnerabilities = ParseAuditOutput(auditOutput + "\n" + auditError, pm.Name);
                 result.HasVulnerabilities = result.Vulnerabilities.Count > 0 || !auditSuccess;
 
@@ -50,7 +55,7 @@ public sealed class NpmHygieneTools(ILogger<NpmHygieneTools> logger)
                 if (!vulnerabilitiesOnly)
                 {
                     var (_, outdatedOutput, outdatedError) =
-                        await RunCommandAsync(workDir, pm.Command, pm.OutdatedArgs, cancellationToken);
+                        await RunCommandAsync(workDir, pm.Command, pm.OutdatedArgs, commandAllowlist, metrics, cancellationToken);
                     result.OutdatedPackages = ParseOutdatedOutput(outdatedOutput, pm.Name);
                     result.HasOutdated = result.OutdatedPackages.Count > 0;
                 }
@@ -324,8 +329,21 @@ public sealed class NpmHygieneTools(ILogger<NpmHygieneTools> logger)
         s.Length <= maxLen ? s : s[..maxLen] + "...(truncated)";
 
     private static async Task<(bool success, string output, string error)> RunCommandAsync(
-        string workingDir, string fileName, string args, CancellationToken ct)
+        string workingDir,
+        string fileName,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var decision = commandAllowlist.Evaluate("npm_hygiene", fileName);
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return (false, string.Empty, decision.Reason);
+        }
+
+        metrics.RecordExecuteAllow();
         var resolvedFileName = ResolveCommand(fileName);
         var psi = new ProcessStartInfo
         {

@@ -3,11 +3,16 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class BuildTools(ILogger<BuildTools> logger)
+public sealed class BuildTools(
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    ILogger<BuildTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -34,7 +39,7 @@ public sealed class BuildTools(ILogger<BuildTools> logger)
             {
                 attempts.Add(new BuildAttempt { Number = attempt, StartTime = DateTime.UtcNow });
 
-                var (success, output, error) = await RunDotnetCommandAsync(workDir, buildArgs, cancellationToken);
+                var (success, output, error) = await RunDotnetCommandAsync(workDir, buildArgs, commandAllowlist, metrics, cancellationToken);
                 attempts[attempt - 1].Success = success;
                 attempts[attempt - 1].Output = output.Length > 5000 ? output[..5000] : output;
                 attempts[attempt - 1].Error = error.Length > 5000 ? error[..5000] : error;
@@ -81,8 +86,20 @@ public sealed class BuildTools(ILogger<BuildTools> logger)
     }
 
     private static async Task<(bool success, string output, string error)> RunDotnetCommandAsync(
-        string workingDir, string args, CancellationToken ct)
+        string workingDir,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var decision = commandAllowlist.Evaluate("fix_build", "dotnet");
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return (false, string.Empty, decision.Reason);
+        }
+
+        metrics.RecordExecuteAllow();
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",

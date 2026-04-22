@@ -1,0 +1,27 @@
+name: Guardrails Check
+
+on:
+  pull_request:
+    paths:
+      - "library/agents/**"
+      - "library/skills/**"
+      - "library/guardrails/**"
+      - "scripts/validate-agent-contract.mjs"
+      - ".github/workflows/guardrails-check.yml"
+
+jobs:
+  validate-agent-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate changed agent/skill guardrail fields
+        run: node scripts/validate-agent-contract.mjs

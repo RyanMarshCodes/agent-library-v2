@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Configuration;
 using Ryan.MCP.Mcp.Services;
+using Ryan.MCP.Mcp.Services.Knowledge;
 using Ryan.MCP.Mcp.Services.Memory;
+using Ryan.MCP.Mcp.Services.Observability;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
@@ -10,6 +13,9 @@ namespace Ryan.MCP.Mcp.McpTools;
 public sealed class DocumentTools(
     DocumentIngestionCoordinator documents,
     IMemoryStore memoryStore,
+    SemanticRetrievalCache retrievalCache,
+    PlatformMetrics metrics,
+    McpOptions options,
     ILogger<DocumentTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
@@ -169,12 +175,21 @@ public sealed class DocumentTools(
             return JsonSerializer.Serialize(new { error = "query is required" }, JsonOptions);
         }
 
-        maxResults = Math.Clamp(maxResults, 1, 20);
+        maxResults = Math.Clamp(maxResults, 1, Math.Max(1, options.Retrieval.MaxKnowledgeResults));
         var normalizedScope = (scope ?? "all").Trim().ToLowerInvariant();
         if (normalizedScope is not ("all" or "documents" or "memory"))
         {
             return JsonSerializer.Serialize(new { error = "scope must be one of: all, documents, memory" }, JsonOptions);
         }
+
+        var cacheKey = BuildRetrievalCacheKey(query, normalizedScope, maxResults);
+        if (retrievalCache.TryGet(cacheKey, out var cached))
+        {
+            metrics.RecordKnowledgeCacheHit();
+            return cached;
+        }
+
+        metrics.RecordKnowledgeCacheMiss();
 
         var hits = new List<RetrievalHit>();
         var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -206,14 +221,23 @@ public sealed class DocumentTools(
             .Take(maxResults)
             .ToList();
 
-        return JsonSerializer.Serialize(new
+        var response = JsonSerializer.Serialize(new
         {
             query,
             scope = normalizedScope,
             count = ordered.Count,
             results = ordered,
+            cache = new
+            {
+                enabled = options.Retrieval.EnableSemanticCache,
+                keyScope = cacheKey,
+                ttlMinutes = options.Retrieval.SemanticCacheTtlMinutes
+            },
             hint = "Use read_document for full standards content or memory_read for full graph when needed.",
         }, JsonOptions);
+
+        retrievalCache.Set(cacheKey, response);
+        return response;
     }
 
     [McpServerTool(Name = "ingestion_status")]
@@ -335,7 +359,7 @@ public sealed class DocumentTools(
 
                 var index = content.IndexOf(matchedTerm, StringComparison.OrdinalIgnoreCase);
                 var start = Math.Max(0, index - 80);
-                var length = Math.Min(220, content.Length - start);
+                var length = Math.Min(Math.Max(50, options.Retrieval.MaxSnippetChars), content.Length - start);
                 var snippet = content.Substring(start, length).Replace('\n', ' ').Replace('\r', ' ').Trim();
 
                 hits.Add(new DocumentHit(
@@ -351,6 +375,15 @@ public sealed class DocumentTools(
         }
 
         return hits;
+    }
+
+    private string BuildRetrievalCacheKey(string query, string scope, int maxResults)
+    {
+        // Include ingestion freshness so doc changes naturally invalidate retrieval cache.
+        var snapshot = documents.Snapshot;
+        var docVersion = snapshot.UpdatedUtc.ToString("O");
+        var normalizedQuery = query.Trim().ToLowerInvariant();
+        return $"v1|{options.Knowledge.ProjectSlug}|{scope}|{maxResults}|{docVersion}|{normalizedQuery}";
     }
 
     private sealed record DocumentHit(string Id, double Score, string Snippet, string Citation);

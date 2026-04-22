@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-stack.local/schemas/agent-contract.schema.json",
+  "title": "AgentContract",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "scope",
+    "allowed_tools",
+    "forbidden_actions",
+    "max_parallelism",
+    "budget_tier",
+    "escalation_triggers"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "scope": { "type": "string", "minLength": 1 },
+    "allowed_tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "max_parallelism": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32
+    },
+    "budget_tier": {
+      "type": "string",
+      "enum": ["S", "M", "L"]
+    },
+    "escalation_triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": true
+}

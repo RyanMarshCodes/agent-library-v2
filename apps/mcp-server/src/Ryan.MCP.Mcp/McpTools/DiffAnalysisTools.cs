@@ -3,11 +3,16 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class DiffAnalysisTools(ILogger<DiffAnalysisTools> logger)
+public sealed class DiffAnalysisTools(
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    ILogger<DiffAnalysisTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -61,9 +66,9 @@ public sealed class DiffAnalysisTools(ILogger<DiffAnalysisTools> logger)
             };
 
             // Run all three git commands in parallel
-            var diffTask = RunGitAsync(workDir, diffArgs, cancellationToken);
-            var statTask = RunGitAsync(workDir, statArgs, cancellationToken);
-            var nameStatusTask = RunGitAsync(workDir, nameStatusArgs, cancellationToken);
+            var diffTask = RunGitAsync(workDir, diffArgs, commandAllowlist, metrics, cancellationToken);
+            var statTask = RunGitAsync(workDir, statArgs, commandAllowlist, metrics, cancellationToken);
+            var nameStatusTask = RunGitAsync(workDir, nameStatusArgs, commandAllowlist, metrics, cancellationToken);
 
             await Task.WhenAll(diffTask, statTask, nameStatusTask);
 
@@ -370,8 +375,21 @@ public sealed class DiffAnalysisTools(ILogger<DiffAnalysisTools> logger)
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    private static async Task<string> RunGitAsync(string workingDir, string args, CancellationToken ct)
+    private static async Task<string> RunGitAsync(
+        string workingDir,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var decision = commandAllowlist.Evaluate("analyze_diff", "git");
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return string.Empty;
+        }
+
+        metrics.RecordExecuteAllow();
         var psi = new ProcessStartInfo
         {
             FileName = "git",

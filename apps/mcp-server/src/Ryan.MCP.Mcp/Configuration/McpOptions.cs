@@ -14,6 +14,203 @@ public class McpOptions
     public ExternalMcpOptions ExternalMcp { get; set; } = new();
     public List<LlmProviderOptions> LlmProviders { get; set; } = [];
     public ModelMappingOptions ModelMapping { get; set; } = new();
+    public PolicyOptions Policy { get; set; } = new();
+    public WorkflowStateOptions WorkflowState { get; set; } = new();
+    public ExecutePolicyOptions ExecutePolicy { get; set; } = new();
+    public RoutingBudgetOptions RoutingBudget { get; set; } = new();
+    public RoutingPolicyOptions RoutingPolicy { get; set; } = new();
+    public RetrievalOptions Retrieval { get; set; } = new();
+    public PromptCacheOptions PromptCache { get; set; } = new();
+}
+
+public class PolicyOptions
+{
+    public bool RequireApprovalTokenForMutate { get; set; } = true;
+    public bool RequireApprovalTokenForExecute { get; set; } = true;
+    public string? ApprovalToken { get; set; }
+    public List<string> ApprovalTokens { get; set; } = [];
+    public List<string> ReadToolPrefixes { get; set; } =
+    [
+        "list_",
+        "get_",
+        "read_",
+        "search_",
+        "memory_recall",
+        "pr_checks_status"
+    ];
+    public List<string> MutateToolPrefixes { get; set; } =
+    [
+        "create_",
+        "update_",
+        "upsert_",
+        "delete_",
+        "memory_persist",
+        "memory_link",
+        "pr_create_or_update",
+        "issue_sync",
+        "workflow_state_upsert"
+    ];
+    public List<string> ExecuteToolPrefixes { get; set; } =
+    [
+        "run_",
+        "fix_",
+        "call_external_mcp_tool",
+        "exec_",
+        "shell_"
+    ];
+}
+
+public class WorkflowStateOptions
+{
+    /// <summary>
+    /// Workflow state backend provider: "postgres" or "inmemory".
+    /// </summary>
+    public string Provider { get; set; } = "postgres";
+}
+
+public class ExecutePolicyOptions
+{
+    /// <summary>
+    /// When true, process execution tools validate command names against AllowedCommands.
+    /// </summary>
+    public bool EnforceAllowlist { get; set; } = true;
+
+    /// <summary>
+    /// Allowed executable names (case-insensitive). Keep this list minimal.
+    /// </summary>
+    public List<string> AllowedCommands { get; set; } =
+    [
+        "dotnet",
+        "git",
+        "gh",
+        "npm",
+        "pnpm",
+        "yarn",
+        "bun"
+    ];
+}
+
+public class RoutingBudgetOptions
+{
+    /// <summary>
+    /// Enables projected cost checks for model routing recommendations.
+    /// </summary>
+    public bool EnforcePerWorkflowBudget { get; set; } = true;
+
+    /// <summary>
+    /// Default USD ceiling for a workflow when no explicit override is provided.
+    /// </summary>
+    public decimal DefaultWorkflowBudgetUsd { get; set; } = 1.00m;
+
+    /// <summary>
+    /// Optional per-workflow budget overrides.
+    /// Key examples: "/feature-delivery", "/incident-triage".
+    /// </summary>
+    public Dictionary<string, decimal> WorkflowBudgetUsd { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public class RoutingPolicyOptions
+{
+    /// <summary>
+    /// Prefer small models by default and only escalate for risk/complexity triggers.
+    /// </summary>
+    public bool EnforceSmallFirst { get; set; } = true;
+
+    /// <summary>
+    /// Estimated total tokens that trigger at least capable-tier routing.
+    /// </summary>
+    public int EscalateAtEstimatedTotalTokens { get; set; } = 6000;
+
+    /// <summary>
+    /// If true, try fallback chain when projected budget is exceeded.
+    /// </summary>
+    public bool EnableBudgetFallback { get; set; } = true;
+
+    /// <summary>
+    /// Escalation chain from cheapest to strongest.
+    /// </summary>
+    public List<string> EscalationChain { get; set; } = ["small", "capable", "frontier"];
+
+    /// <summary>
+    /// Fallback chain used when budget is exceeded.
+    /// </summary>
+    public List<string> FallbackChain { get; set; } = ["frontier", "capable", "small"];
+
+    /// <summary>
+    /// Keywords that generally require capable-tier routing.
+    /// </summary>
+    public List<string> MediumRiskKeywords { get; set; } =
+    [
+        "refactor",
+        "migration",
+        "database",
+        "performance",
+        "distributed",
+        "concurrency",
+        "auth",
+        "security"
+    ];
+
+    /// <summary>
+    /// Keywords that generally require frontier-tier routing.
+    /// </summary>
+    public List<string> HighRiskKeywords { get; set; } =
+    [
+        "incident",
+        "outage",
+        "sev",
+        "rollback",
+        "production",
+        "compliance",
+        "security breach",
+        "data loss"
+    ];
+}
+
+public class RetrievalOptions
+{
+    /// <summary>
+    /// Hard upper bound for knowledge retrieval result count.
+    /// </summary>
+    public int MaxKnowledgeResults { get; set; } = 20;
+
+    /// <summary>
+    /// Hard upper bound for retrieval snippet characters.
+    /// </summary>
+    public int MaxSnippetChars { get; set; } = 220;
+
+    /// <summary>
+    /// Enable in-memory semantic cache for knowledge retrieval responses.
+    /// </summary>
+    public bool EnableSemanticCache { get; set; } = true;
+
+    /// <summary>
+    /// TTL for semantic cache entries.
+    /// </summary>
+    public int SemanticCacheTtlMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// Max number of semantic cache entries retained in-memory.
+    /// </summary>
+    public int SemanticCacheMaxEntries { get; set; } = 500;
+}
+
+public class PromptCacheOptions
+{
+    /// <summary>
+    /// Enable in-memory stable prefix caching for workflow and prompt templates.
+    /// </summary>
+    public bool EnablePrefixCache { get; set; } = true;
+
+    /// <summary>
+    /// TTL for prompt prefix cache entries.
+    /// </summary>
+    public int PrefixCacheTtlMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Max number of cached prompt prefix entries.
+    /// </summary>
+    public int PrefixCacheMaxEntries { get; set; } = 1000;
 }
 
 public class ExternalMcpOptions

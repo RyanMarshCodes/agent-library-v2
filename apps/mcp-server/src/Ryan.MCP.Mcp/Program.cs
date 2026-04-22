@@ -7,8 +7,12 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Ryan.MCP.Mcp.Configuration;
 using Ryan.MCP.Mcp.Services;
+using Ryan.MCP.Mcp.Services.Knowledge;
 using Ryan.MCP.Mcp.Services.Memory;
 using Ryan.MCP.Mcp.Services.ModelMapping;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
+using Ryan.MCP.Mcp.Services.WorkflowState;
 using Ryan.MCP.Mcp.Storage;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
@@ -48,7 +52,11 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
-        .AddSource("Ryan.MCP"));
+        .AddSource("Ryan.MCP"))
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddMeter(PlatformMetrics.MeterName));
 
 // MCP Options
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection(McpOptions.SectionName));
@@ -98,6 +106,19 @@ builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
 builder.Services.AddSingleton<MemoryMigrationRunner>();
 builder.Services.AddSingleton<IModelMappingStore, PostgresModelMappingStore>();
 builder.Services.AddSingleton<ModelMappingSyncService>();
+builder.Services.AddSingleton<PolicyPreflightService>();
+builder.Services.AddSingleton<CommandAllowlistService>();
+builder.Services.AddSingleton<RoutingBudgetService>();
+builder.Services.AddSingleton<PlatformMetrics>();
+builder.Services.AddSingleton<SemanticRetrievalCache>();
+builder.Services.AddSingleton<PromptPrefixCache>();
+builder.Services.AddSingleton<IWorkflowStateStore>(sp =>
+{
+    var options = sp.GetRequiredService<McpOptions>();
+    return options.WorkflowState.Provider.Equals("postgres", StringComparison.OrdinalIgnoreCase)
+        ? new PostgresWorkflowStateStore(sp.GetRequiredService<NpgsqlDataSource>())
+        : new InMemoryWorkflowStateStore();
+});
 
 // MCP Protocol (tools, resources, prompts discovered via attributes)
 // Stateless = true needed for remote MCP clients (OpenCode) that don't maintain session state

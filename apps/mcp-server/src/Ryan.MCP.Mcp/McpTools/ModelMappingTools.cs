@@ -4,6 +4,7 @@ using ModelContextProtocol.Server;
 using Ryan.MCP.Mcp.Configuration;
 using Ryan.MCP.Mcp.Services;
 using Ryan.MCP.Mcp.Services.ModelMapping;
+using Ryan.MCP.Mcp.Services.Observability;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
@@ -12,6 +13,8 @@ public sealed class ModelMappingTools(
     IModelMappingStore store,
     ModelMappingSyncService syncService,
     AgentIngestionCoordinator agents,
+    RoutingBudgetService routingBudget,
+    PlatformMetrics metrics,
     McpOptions options,
     ILogger<ModelMappingTools> logger)
 {
@@ -176,6 +179,9 @@ public sealed class ModelMappingTools(
         [Description("Task description (e.g. 'write unit tests for C# service'). Required if agent_name not provided.")] string? task = null,
         [Description("Agent name to look up directly. If provided, task is ignored.")] string? agentName = null,
         [Description("Optional AI client tool (e.g. 'opencode', 'copilot', 'claude'). If omitted, uses McpOptions.ModelMapping.ActiveClientTool.")] string? clientTool = null,
+        [Description("Workflow key for budget tracking (e.g. '/feature-delivery').")] string? workflow = null,
+        [Description("Estimated input tokens for this request (default 2000).")] int estimatedInputTokens = 2000,
+        [Description("Estimated output tokens for this request (default 1000).")] int estimatedOutputTokens = 1000,
         CancellationToken ct = default)
     {
         using var scope = logger.BeginScope(new Dictionary<string, object?>
@@ -204,7 +210,14 @@ public sealed class ModelMappingTools(
                 });
             }
 
-            return FormatRecommendation(mapping, agentName.Trim(), null, clientTool);
+            return FormatRecommendation(
+                mapping,
+                agentName.Trim(),
+                null,
+                clientTool,
+                workflow,
+                estimatedInputTokens,
+                estimatedOutputTokens);
         }
 
         // Otherwise, find best agent for the task then look up its model
@@ -233,7 +246,14 @@ public sealed class ModelMappingTools(
             });
         }
 
-        return FormatRecommendation(agentMapping, topAgent.Agent.Name, task, clientTool);
+        return FormatRecommendation(
+            agentMapping,
+            topAgent.Agent.Name,
+            task,
+            clientTool,
+            workflow,
+            estimatedInputTokens,
+            estimatedOutputTokens);
     }
 
     [McpServerTool(Name = "list_llm_providers")]
@@ -264,7 +284,14 @@ public sealed class ModelMappingTools(
         }, JsonOptions);
     }
 
-    private string FormatRecommendation(AgentModelMapping mapping, string agentName, string? task, string? clientTool)
+    private string FormatRecommendation(
+        AgentModelMapping mapping,
+        string agentName,
+        string? task,
+        string? clientTool,
+        string? workflow,
+        int estimatedInputTokens,
+        int estimatedOutputTokens)
     {
         var effective = ModelToolOverrideResolver.ResolveEffectiveModel(
             mapping,
@@ -282,18 +309,89 @@ public sealed class ModelMappingTools(
         var alt2Available = mapping.AltModel2 is not null && enabledProviders.Any(p =>
             p.Models.Contains(mapping.AltModel2, StringComparer.OrdinalIgnoreCase));
 
+        var complexity = EvaluateComplexity(task, estimatedInputTokens, estimatedOutputTokens);
+        var candidates = BuildCandidates(mapping, effective.EffectiveModel, effectiveProvider, primaryAvailable, alt1Available, alt2Available);
+        var selection = SelectCandidate(candidates, complexity.RequiredClass);
+        var projectedCostUsd = EstimateCostUsdForClass(mapping, estimatedInputTokens, estimatedOutputTokens, selection.ModelClass);
+
+        var budget = routingBudget.Evaluate(workflow ?? "default", projectedCostUsd);
+        metrics.RecordRoutingBudgetDecision(budget.Allowed, budget.ProjectedCostUsd);
+
+        if (!budget.Allowed && options.RoutingPolicy.EnableBudgetFallback)
+        {
+            var fallback = SelectBudgetFallback(candidates, selection.ModelClass);
+            if (fallback is not null)
+            {
+                selection = fallback;
+                projectedCostUsd = EstimateCostUsdForClass(mapping, estimatedInputTokens, estimatedOutputTokens, selection.ModelClass);
+                budget = routingBudget.Evaluate(workflow ?? "default", projectedCostUsd);
+                metrics.RecordRoutingBudgetDecision(budget.Allowed, budget.ProjectedCostUsd);
+            }
+        }
+
+        if (budget.Allowed && budget.ProjectedCostUsd > 0m)
+        {
+            routingBudget.RecordSpend(budget.WorkflowKey, budget.ProjectedCostUsd);
+        }
+
+        if (!budget.Allowed)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                status = "budget_exceeded",
+                task,
+                agent = agentName,
+                recommendation = new
+                {
+                    model = selection.Model,
+                    mapping.Tier,
+                    provider = selection.Provider,
+                    modelClass = selection.ModelClass
+                },
+                routingPolicy = new
+                {
+                    options.RoutingPolicy.EnforceSmallFirst,
+                    complexity.Level,
+                    complexity.Reason,
+                    complexity.RequiredClass,
+                    escalationChain = options.RoutingPolicy.EscalationChain,
+                    fallbackChain = options.RoutingPolicy.FallbackChain
+                },
+                budget = new
+                {
+                    budget.WorkflowKey,
+                    budget.BudgetUsd,
+                    budget.SpentUsd,
+                    budget.RemainingUsd,
+                    budget.ProjectedCostUsd,
+                    budget.Reason
+                },
+                alternatives = candidates.Select(c => new
+                {
+                    c.Model,
+                    c.Provider,
+                    c.ModelClass,
+                    c.Available,
+                    c.Source
+                }),
+                hint = "Use a cheaper class in fallback chain, reduce estimated tokens, or raise workflow budget."
+            }, JsonOptions);
+        }
+
         return JsonSerializer.Serialize(new
         {
             task,
             agent = agentName,
             recommendation = new
             {
-                model = effective.EffectiveModel,
+                model = selection.Model,
                 mapping.Tier,
-                provider = effectiveProvider,
-                available = primaryAvailable,
+                provider = selection.Provider,
+                available = selection.Available,
                 overrideApplied = effective.UsedOverride,
                 tool = effective.EffectiveTool,
+                modelClass = selection.ModelClass,
+                source = selection.Source
             },
             alternatives = new[]
             {
@@ -307,11 +405,218 @@ public sealed class ModelMappingTools(
             cost = mapping.CostPer1MIn.HasValue || mapping.CostPer1MOut.HasValue
                 ? new { inputPer1M = mapping.CostPer1MIn, outputPer1M = mapping.CostPer1MOut }
                 : null,
+            routingPolicy = new
+            {
+                options.RoutingPolicy.EnforceSmallFirst,
+                complexity.Level,
+                complexity.Reason,
+                complexity.RequiredClass,
+                escalationChain = options.RoutingPolicy.EscalationChain,
+                fallbackChain = options.RoutingPolicy.FallbackChain
+            },
+            budget = new
+            {
+                budget.WorkflowKey,
+                budget.BudgetUsd,
+                budget.SpentUsd,
+                budget.RemainingUsd,
+                budget.ProjectedCostUsd,
+                budget.ProjectedRemainingUsd
+            },
             toolOverrides = ModelToolOverrideResolver.ParseToolOverrides(mapping.ToolOverridesJson),
             mapping.Notes,
             fetch = $"get_agent(\"{agentName}\")",
         }, JsonOptions);
     }
+
+    private static decimal EstimateCostUsd(AgentModelMapping mapping, int inputTokens, int outputTokens)
+    {
+        var safeIn = Math.Max(0, inputTokens);
+        var safeOut = Math.Max(0, outputTokens);
+        var inCost = mapping.CostPer1MIn ?? 0m;
+        var outCost = mapping.CostPer1MOut ?? 0m;
+
+        var inputUsd = (inCost / 1_000_000m) * safeIn;
+        var outputUsd = (outCost / 1_000_000m) * safeOut;
+        return inputUsd + outputUsd;
+    }
+
+    private decimal EstimateCostUsdForClass(AgentModelMapping mapping, int inputTokens, int outputTokens, string modelClass)
+    {
+        var baseCost = EstimateCostUsd(mapping, inputTokens, outputTokens);
+        if (baseCost <= 0m)
+        {
+            return 0m;
+        }
+
+        var primaryClass = InferModelClass(mapping.PrimaryModel);
+        var primaryWeight = GetModelClassWeight(primaryClass);
+        var targetWeight = GetModelClassWeight(modelClass);
+        if (primaryWeight <= 0m)
+        {
+            return baseCost;
+        }
+
+        var ratio = targetWeight / primaryWeight;
+        return Math.Max(0m, decimal.Round(baseCost * ratio, 6, MidpointRounding.AwayFromZero));
+    }
+
+    private (string Level, string RequiredClass, string Reason) EvaluateComplexity(string? task, int inputTokens, int outputTokens)
+    {
+        var totalTokens = Math.Max(0, inputTokens) + Math.Max(0, outputTokens);
+        var normalized = (task ?? string.Empty).ToLowerInvariant();
+
+        var highRisk = options.RoutingPolicy.HighRiskKeywords.Any(k => normalized.Contains(k, StringComparison.OrdinalIgnoreCase));
+        if (highRisk || totalTokens >= options.RoutingPolicy.EscalateAtEstimatedTotalTokens * 2)
+        {
+            return ("high", "frontier", highRisk ? "High-risk trigger keyword matched." : "Large token estimate triggered high-tier escalation.");
+        }
+
+        var mediumRisk = options.RoutingPolicy.MediumRiskKeywords.Any(k => normalized.Contains(k, StringComparison.OrdinalIgnoreCase));
+        if (mediumRisk || totalTokens >= options.RoutingPolicy.EscalateAtEstimatedTotalTokens)
+        {
+            return ("medium", "capable", mediumRisk ? "Medium-risk trigger keyword matched." : "Token estimate triggered capable-tier escalation.");
+        }
+
+        return ("low", "small", "No risk/complexity trigger detected; keeping small-first default.");
+    }
+
+    private IReadOnlyList<RoutingCandidate> BuildCandidates(
+        AgentModelMapping mapping,
+        string effectiveModel,
+        string? effectiveProvider,
+        bool primaryAvailable,
+        bool alt1Available,
+        bool alt2Available)
+    {
+        var candidates = new List<RoutingCandidate>
+        {
+            new(effectiveModel, effectiveProvider, primaryAvailable, InferModelClass(effectiveModel), effectiveModel.Equals(mapping.PrimaryModel, StringComparison.OrdinalIgnoreCase) ? "primary" : "tool-override")
+        };
+
+        if (!string.IsNullOrWhiteSpace(mapping.AltModel1))
+        {
+            candidates.Add(new RoutingCandidate(mapping.AltModel1!, mapping.AltProvider1 ?? ResolveProvider(mapping.AltModel1!), alt1Available, InferModelClass(mapping.AltModel1!), "alternative-1"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.AltModel2))
+        {
+            candidates.Add(new RoutingCandidate(mapping.AltModel2!, mapping.AltProvider2 ?? ResolveProvider(mapping.AltModel2!), alt2Available, InferModelClass(mapping.AltModel2!), "alternative-2"));
+        }
+
+        return candidates
+            .GroupBy(c => c.Model, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+    }
+
+    private RoutingCandidate SelectCandidate(IReadOnlyList<RoutingCandidate> candidates, string requiredClass)
+    {
+        var available = candidates.Where(c => c.Available).ToList();
+        if (available.Count == 0)
+        {
+            return candidates[0];
+        }
+
+        var chain = options.RoutingPolicy.EscalationChain.Count > 0
+            ? options.RoutingPolicy.EscalationChain
+            : ["small", "capable", "frontier"];
+
+        if (!options.RoutingPolicy.EnforceSmallFirst)
+        {
+            var direct = available.FirstOrDefault(c => c.ModelClass.Equals(requiredClass, StringComparison.OrdinalIgnoreCase));
+            return direct ?? available.OrderBy(c => GetModelClassWeight(c.ModelClass)).First();
+        }
+
+        foreach (var modelClass in chain)
+        {
+            var candidate = available.FirstOrDefault(c => c.ModelClass.Equals(modelClass, StringComparison.OrdinalIgnoreCase));
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            if (GetModelClassWeight(modelClass) >= GetModelClassWeight(requiredClass))
+            {
+                return candidate;
+            }
+        }
+
+        return available.OrderBy(c => GetModelClassWeight(c.ModelClass)).First();
+    }
+
+    private RoutingCandidate? SelectBudgetFallback(IReadOnlyList<RoutingCandidate> candidates, string selectedClass)
+    {
+        var available = candidates.Where(c => c.Available).ToList();
+        if (available.Count == 0)
+        {
+            return null;
+        }
+
+        var selectedWeight = GetModelClassWeight(selectedClass);
+        var fallbackChain = options.RoutingPolicy.FallbackChain.Count > 0
+            ? options.RoutingPolicy.FallbackChain
+            : ["frontier", "capable", "small"];
+
+        foreach (var modelClass in fallbackChain)
+        {
+            var weight = GetModelClassWeight(modelClass);
+            if (weight > selectedWeight)
+            {
+                continue;
+            }
+
+            var fallback = available.FirstOrDefault(c => c.ModelClass.Equals(modelClass, StringComparison.OrdinalIgnoreCase));
+            if (fallback is not null)
+            {
+                return fallback;
+            }
+        }
+
+        return available.OrderBy(c => GetModelClassWeight(c.ModelClass)).FirstOrDefault();
+    }
+
+    private static string InferModelClass(string modelName)
+    {
+        var name = modelName.ToLowerInvariant();
+        if (name.Contains("nano", StringComparison.Ordinal) ||
+            name.Contains("mini", StringComparison.Ordinal) ||
+            name.Contains("haiku", StringComparison.Ordinal) ||
+            name.Contains("flash", StringComparison.Ordinal) ||
+            name.Contains("small", StringComparison.Ordinal))
+        {
+            return "small";
+        }
+
+        if (name.Contains("opus", StringComparison.Ordinal) ||
+            name.Contains("ultra", StringComparison.Ordinal) ||
+            name.Contains("gpt-5.4", StringComparison.Ordinal) ||
+            name.Contains("o1", StringComparison.Ordinal) ||
+            name.Contains("pro", StringComparison.Ordinal))
+        {
+            return "frontier";
+        }
+
+        return "capable";
+    }
+
+    private static decimal GetModelClassWeight(string modelClass)
+    {
+        return modelClass.ToLowerInvariant() switch
+        {
+            "small" => 0.5m,
+            "capable" => 1.0m,
+            "frontier" => 2.0m,
+            _ => 1.0m
+        };
+    }
+
+    private sealed record RoutingCandidate(
+        string Model,
+        string? Provider,
+        bool Available,
+        string ModelClass,
+        string Source);
 
     private string? ResolveProvider(string modelName)
     {

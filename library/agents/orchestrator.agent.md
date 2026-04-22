@@ -21,7 +21,7 @@ The Orchestrator is the ringleader of the agent library. It receives any task �
 - Compound requests spanning multiple domains (e.g. "audit security AND write tests AND update the README")
 - When you want maximum efficiency and minimum back-and-forth
 - When you are unsure which agent to use — the Orchestrator decides and routes
-- **Not** for holistic **game product** threads (vision + narrative + economy + ship + IP + build across mobile/PC/Steam) — use `game-director` for that
+- **Not** for repo-wide governance contract design — use `ai-agent-expert` + `documentation`
 
 ## Required Inputs
 
@@ -47,14 +47,6 @@ Map every incoming task to the most specific matching agent. When multiple agent
 | Backend — Node.js / Python / Go | `backend-developer` |
 | Full feature — DB + API + UI together | `fullstack-developer` |
 | Mobile — React Native / Flutter | `mobile-developer` |
-| Game systems — loops, economy, RPG meta, live-ops (mobile, PC, Steam, Deck) | `game-design` |
-| Mobile App Store / Play release, ASO, privacy, IAP compliance | `mobile-game-shipping` |
-| Mobile games **market** — competition, genre trends, charts, retention/monetization meta | `mobile-games-market-intelligence` |
-| Steam / PC / Linux / Steam Deck release, Steamworks, Deck UX | `steam-pc-deck` |
-| Unity game development — C#, builds, Input System, performance | `unity-expert` |
-| Creative fiction / game dialogue / worldbuilding / string copy | `creative-writing` |
-| Game story critique — retention, pacing, lore, evergreen narrative | `narrative-engagement` |
-| Lore / game names — trademark & copyright **risk flags** (not legal advice) | `lore-ip-screening` |
 | REST / OpenAPI / API design | `api-designer` |
 | GraphQL schema / federation | `graphql-architect` |
 | Microservices / distributed systems | `microservices-architect` |
@@ -62,7 +54,6 @@ Map every incoming task to the most specific matching agent. When multiple agent
 | CI/CD pipelines, infrastructure, DevOps | `devops-expert` |
 | GitHub Actions workflows | `github-actions` |
 | Accessibility / WCAG / a11y | `accessibility` |
-| Elasticsearch / observability / RAG | `elasticsearch-observability` |
 | Write tests — unit, integration, or e2e (any stack) | `test-generator` |
 | Tech debt analysis | `tech-debt-analysis` |
 | Database schema, indexing, migrations, query optimization | `database-designer` |
@@ -79,13 +70,10 @@ Map every incoming task to the most specific matching agent. When multiple agent
 | Strategic planning before implementation | `plan` |
 | Design or audit an agent definition | `ai-agent-expert` |
 | General documentation (multi-format) | `documentation` |
-| Product discovery — domain research, feature set, requirements spec | `product-discovery` |
-| Product strategy — idea validation, monetization, indie/SaaS focus | `product-strategist` |
-| **Game** product — cross-cutting vision, sequencing, delegate narrative/systems/ship/IP/build (mobile, Steam, Deck, Unity) | `game-director` |
 
 ## Canonical workflows (slash commands)
 
-The same routing philosophy applies to **repository-wide workflows** documented in `mcp-server/knowledgebase/WORKFLOW_COMMANDS.md` (and `skills/WORKFLOW_COMMANDS.md` until deduplicated). Prefer invoking these via slash command or natural language; they map to skills, not separate orchestrator agents:
+The same routing philosophy applies to **repository-wide workflows** documented in `apps/mcp-server/knowledgebase/WORKFLOW_COMMANDS.md`. Prefer invoking these via slash command or natural language; they map to skills, not separate orchestrator agents:
 
 `/spec`, `/validate`, `/architect`, `/implement`, `/test`, `/reflect`, `/review`, `/commit`, `/wrapup`, `/proceed`, `/status`, `/bugfix`, `/context`, `/init`.
 

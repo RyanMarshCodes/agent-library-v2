@@ -1,0 +1,8 @@
+# Cursor Project Rules
+
+- Use spec-first workflow for feature delivery.
+- Enforce phase gates and validation before moving forward.
+- Require explicit approval for mutating/execute tools.
+- Block destructive operations unless explicitly requested.
+- Never output secrets.
+- Use small-first model routing and budget awareness.

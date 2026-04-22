@@ -4,11 +4,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
+using Ryan.MCP.Mcp.Services.Observability;
+using Ryan.MCP.Mcp.Services.Policy;
 
 namespace Ryan.MCP.Mcp.McpTools;
 
 [McpServerToolType]
-public sealed class NuGetTools(ILogger<NuGetTools> logger)
+public sealed class NuGetTools(
+    CommandAllowlistService commandAllowlist,
+    PlatformMetrics metrics,
+    ILogger<NuGetTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new();
 
@@ -30,20 +35,20 @@ public sealed class NuGetTools(ILogger<NuGetTools> logger)
 
             try
             {
-                var (hasOutdated, outdatedOutput) = await CheckOutdatedAsync(workDir, includePrerelease, cancellationToken);
+                var (hasOutdated, outdatedOutput) = await CheckOutdatedAsync(workDir, includePrerelease, commandAllowlist, metrics, cancellationToken);
                 results.HasOutdated = hasOutdated;
                 results.OutdatedPackages = ParseOutdatedPackages(outdatedOutput);
 
                 if (!vulnerabilitiesOnly)
                 {
-                    var (hasVulns, vulnOutput) = await CheckVulnerabilitiesAsync(workDir, cancellationToken);
+                    var (hasVulns, vulnOutput) = await CheckVulnerabilitiesAsync(workDir, commandAllowlist, metrics, cancellationToken);
                     results.HasVulnerabilities = hasVulns;
                     results.Vulnerabilities = ParseVulnerabilities(vulnOutput);
                 }
 
                 results.BreakingChanges = await CheckBreakingChangesAsync(workDir, results.OutdatedPackages, cancellationToken);
                 results.Recommendations = GenerateRecommendations(results);
-                results.ProjectFiles = await FindProjectFilesAsync(workDir, cancellationToken);
+                results.ProjectFiles = await FindProjectFilesAsync(workDir, commandAllowlist, metrics, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -54,10 +59,15 @@ public sealed class NuGetTools(ILogger<NuGetTools> logger)
         }
     }
 
-    private static async Task<(bool, string)> CheckOutdatedAsync(string workDir, bool includePrerelease, CancellationToken ct)
+    private static async Task<(bool, string)> CheckOutdatedAsync(
+        string workDir,
+        bool includePrerelease,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
         var args = includePrerelease ? " outdated --include-prerelease" : " outdated";
-        var (success, output, error) = await RunDotnetCommandAsync(workDir, $"list {args}", ct);
+        var (success, output, error) = await RunDotnetCommandAsync(workDir, $"list {args}", commandAllowlist, metrics, ct);
 
         if (output.Contains("The following packages are outdated"))
             return (true, output);
@@ -68,9 +78,13 @@ public sealed class NuGetTools(ILogger<NuGetTools> logger)
         return (false, output);
     }
 
-    private static async Task<(bool, string)> CheckVulnerabilitiesAsync(string workDir, CancellationToken ct)
+    private static async Task<(bool, string)> CheckVulnerabilitiesAsync(
+        string workDir,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
-        var (success, output, error) = await RunDotnetCommandAsync(workDir, "list package --vulnerable", ct);
+        var (success, output, error) = await RunDotnetCommandAsync(workDir, "list package --vulnerable", commandAllowlist, metrics, ct);
 
         var hasVulns = output.Contains("Vulnerable") ||
                        output.Contains("Has known vulnerabilities") ||
@@ -189,9 +203,13 @@ public sealed class NuGetTools(ILogger<NuGetTools> logger)
         return recs;
     }
 
-    private static async Task<List<string>> FindProjectFilesAsync(string workDir, CancellationToken ct)
+    private static async Task<List<string>> FindProjectFilesAsync(
+        string workDir,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
-        var (success, output, _) = await RunDotnetCommandAsync(workDir, "list reference", ct);
+        var (success, output, _) = await RunDotnetCommandAsync(workDir, "list reference", commandAllowlist, metrics, ct);
         if (!success) return [];
 
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -201,8 +219,20 @@ public sealed class NuGetTools(ILogger<NuGetTools> logger)
     }
 
     private static async Task<(bool success, string output, string error)> RunDotnetCommandAsync(
-        string workingDir, string args, CancellationToken ct)
+        string workingDir,
+        string args,
+        CommandAllowlistService commandAllowlist,
+        PlatformMetrics metrics,
+        CancellationToken ct)
     {
+        var decision = commandAllowlist.Evaluate("nuget_hygiene", "dotnet");
+        if (!decision.Allowed)
+        {
+            metrics.RecordExecuteDeny();
+            return (false, string.Empty, decision.Reason);
+        }
+
+        metrics.RecordExecuteAllow();
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",

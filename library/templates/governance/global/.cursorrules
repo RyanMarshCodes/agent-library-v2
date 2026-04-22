@@ -1,0 +1,7 @@
+# Cursor Global Rules
+
+- Read-first and least-privilege defaults.
+- Require explicit approval for mutate and execute operations.
+- Block destructive operations by default.
+- Do not reveal secrets in outputs.
+- Prefer efficient model routing and bounded context usage.
