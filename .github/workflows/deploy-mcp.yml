@@ -1,0 +1,91 @@
+name: Deploy MCP Runtime
+
+on:
+	workflow_dispatch:
+	push:
+		branches:
+			- master
+		paths:
+			- "apps/mcp-server/**"
+			- "infra/mcp/**"
+			- "scripts/export-postgres.sh"
+			- "scripts/import-postgres.sh"
+			- ".github/workflows/deploy-mcp.yml"
+
+permissions:
+	contents: read
+
+concurrency:
+	group: deploy-mcp-${{ github.ref }}
+	cancel-in-progress: true
+
+jobs:
+	deploy:
+		runs-on: ubuntu-latest
+		timeout-minutes: 20
+		env:
+			VPS_HOST: ${{ secrets.VPS_HOST }}
+			VPS_PORT: ${{ secrets.VPS_PORT }}
+			VPS_USER: ${{ secrets.VPS_USER }}
+			VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+			DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+			VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+			DEPLOY_BRANCH: ${{ github.ref_name }}
+
+		steps:
+			- name: Validate required secrets
+				shell: bash
+				run: |
+					set -euo pipefail
+					required=(VPS_HOST VPS_PORT VPS_USER VPS_APP_DIR DEPLOY_SSH_PRIVATE_KEY)
+					for key in "${required[@]}"; do
+						if [ -z "${!key:-}" ]; then
+							echo "Missing required secret: $key" >&2
+							exit 1
+						fi
+					done
+
+			- name: Configure SSH
+				shell: bash
+				run: |
+					set -euo pipefail
+					install -m 700 -d ~/.ssh
+					printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+					chmod 600 ~/.ssh/id_ed25519
+
+					if [ -n "${VPS_KNOWN_HOSTS:-}" ]; then
+						printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+					else
+						ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+					fi
+					chmod 600 ~/.ssh/known_hosts
+
+			- name: Deploy over SSH
+				shell: bash
+				run: |
+					set -euo pipefail
+					ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "bash -se" <<EOF
+					set -euo pipefail
+
+					APP_DIR="$VPS_APP_DIR"
+					BRANCH="$DEPLOY_BRANCH"
+
+					if [ ! -d "\$APP_DIR/.git" ]; then
+						echo "Repository not found at \$APP_DIR. Clone repo first." >&2
+						exit 1
+					fi
+
+					cd "\$APP_DIR"
+					git fetch --all --prune
+					git checkout "\$BRANCH"
+					git reset --hard "origin/\$BRANCH"
+
+					cd infra/mcp
+					docker compose pull
+					docker compose up -d --build --remove-orphans
+
+					curl -fsS http://127.0.0.1:8080/health > /dev/null
+					curl -fsS http://127.0.0.1:8081/health > /dev/null
+
+					echo "Deploy complete on branch \$BRANCH"
+					EOF
