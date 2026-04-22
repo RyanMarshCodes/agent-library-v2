@@ -27,7 +27,7 @@
         "name": "ryan",
         "connection_type": "http",
         "client_id": "ryan-mcp-server",
-        "connection_string": "http://localhost:8081/mcp"
+        "connection_string": "http://mcp-server:8081/mcp"
       }
     ]
   },
