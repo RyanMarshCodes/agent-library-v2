@@ -106,6 +106,18 @@ builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
 builder.Services.AddSingleton<MemoryMigrationRunner>();
 builder.Services.AddSingleton<IModelMappingStore, PostgresModelMappingStore>();
 builder.Services.AddSingleton<ModelMappingSyncService>();
+builder.Services.AddSingleton<Ryan.MCP.Mcp.Services.Knowledge.OpenSearchService>();
+builder.Services.AddSingleton<Ryan.MCP.Mcp.Services.Knowledge.EmbeddingsService>();
+builder.Services.AddSingleton<Ryan.MCP.Mcp.Services.Knowledge.KnowledgeFileService>();
+builder.Services.AddHttpClient("opensearch", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddHttpClient("embeddings", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 builder.Services.AddSingleton<PolicyPreflightService>();
 builder.Services.AddSingleton<CommandAllowlistService>();
 builder.Services.AddSingleton<RoutingBudgetService>();
@@ -141,6 +153,20 @@ using (var scope = app.Services.CreateScope())
     var runner = scope.ServiceProvider.GetRequiredService<MemoryMigrationRunner>();
     await runner.RunAsync().ConfigureAwait(false);
 }
+
+// Ensure OpenSearch index + pipeline exist (non-blocking, non-fatal).
+_ = Task.Run(async () =>
+{
+    try
+    {
+        var os = app.Services.GetRequiredService<Ryan.MCP.Mcp.Services.Knowledge.OpenSearchService>();
+        await os.EnsureInfrastructureAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "OpenSearch infrastructure setup failed on startup (non-fatal)");
+    }
+});
 
 // Sync model mappings from agent frontmatter after ingestion completes.
 // Runs in background — non-blocking.

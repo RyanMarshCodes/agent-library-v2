@@ -3,6 +3,9 @@
 # Environment: keep .env at the repository root. Values are used for
 # compose interpolation (${VAR:-default}) and injected into every service below.
 
+include:
+  - path: ../knowledge-library/docker-compose.yml
+
 name: ai-stack-runtime
 
 services:
@@ -27,6 +30,20 @@ services:
       McpOptions__Knowledge__ProjectPath: /data/library/knowledge/frontend
       McpOptions__Knowledge__IndexPath: /data/state/index
 
+      McpOptions__KnowledgeLibrary__Enabled: ${KNOWLEDGE_LIBRARY_ENABLED:-false}
+      McpOptions__KnowledgeLibrary__KnowledgePath: /data/knowledge-library/knowledge
+      McpOptions__KnowledgeLibrary__RawPendingPath: /data/knowledge-library/raw/pending
+      McpOptions__KnowledgeLibrary__RawProcessedPath: /data/knowledge-library/raw/processed
+
+      McpOptions__OpenSearch__Enabled: ${OPENSEARCH_ENABLED:-false}
+      McpOptions__OpenSearch__Url: ${OPENSEARCH_URL:-http://opensearch:9200}
+      McpOptions__OpenSearch__IndexName: ${OPENSEARCH_INDEX:-knowledge-wiki}
+
+      McpOptions__Embeddings__Enabled: ${EMBEDDINGS_ENABLED:-false}
+      McpOptions__Embeddings__ApiKey: ${OPENAI_API_KEY:-}
+      McpOptions__Embeddings__Model: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      McpOptions__Embeddings__BaseUrl: ${EMBEDDINGS_BASE_URL:-https://api.openai.com/v1}
+
       McpOptions__Agents__LibraryPath: /data/library/agents
       McpOptions__Agents__LocalPath: /data/state/agents
 
@@ -41,8 +58,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      opensearch:
+        condition: service_started
     volumes:
       - ./library:/data/library:ro
+      - ${KNOWLEDGE_LIBRARY_PATH:-../knowledge-library}:/data/knowledge-library
       - mcp_state:/data/state
     networks:
       - bifrost

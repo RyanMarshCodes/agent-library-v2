@@ -63,7 +63,11 @@
           "summarize_errors",
           "incident_timeline",
           "analyze_diff",
-          "fetch"
+          "fetch",
+          "knowledge_search",
+          "knowledge_retrieve",
+          "knowledge_pending",
+          "knowledge_status"
         ]
       }
     ]

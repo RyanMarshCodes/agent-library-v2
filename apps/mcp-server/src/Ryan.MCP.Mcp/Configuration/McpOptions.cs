@@ -21,6 +21,9 @@ public class McpOptions
     public RoutingPolicyOptions RoutingPolicy { get; set; } = new();
     public RetrievalOptions Retrieval { get; set; } = new();
     public PromptCacheOptions PromptCache { get; set; } = new();
+    public KnowledgeLibraryOptions KnowledgeLibrary { get; set; } = new();
+    public OpenSearchOptions OpenSearch { get; set; } = new();
+    public EmbeddingsOptions Embeddings { get; set; } = new();
 }
 
 public class PolicyOptions
@@ -301,6 +304,33 @@ public class StorageOptions
     public string Provider { get; set; } = "file"; // "file" or "azure"
     public string? ConnectionString { get; set; }
     public string ContainerName { get; set; } = "mcp-storage";
+}
+
+public class KnowledgeLibraryOptions
+{
+    public bool Enabled { get; set; } = false;
+    public string KnowledgePath { get; set; } = "/data/knowledge-library/knowledge";
+    public string RawPendingPath { get; set; } = "/data/knowledge-library/raw/pending";
+    public string RawProcessedPath { get; set; } = "/data/knowledge-library/raw/processed";
+}
+
+public class OpenSearchOptions
+{
+    public bool Enabled { get; set; } = false;
+    public string Url { get; set; } = "http://localhost:9200";
+    public string IndexName { get; set; } = "knowledge-wiki";
+    public string PipelineName { get; set; } = "knowledge-hybrid-pipeline";
+    public int KnnCandidates { get; set; } = 20;
+}
+
+public class EmbeddingsOptions
+{
+    public bool Enabled { get; set; } = false;
+    public string Provider { get; set; } = "openai";
+    public string ApiKey { get; set; } = "";
+    public string Model { get; set; } = "text-embedding-3-small";
+    public int Dimensions { get; set; } = 1536;
+    public string BaseUrl { get; set; } = "https://api.openai.com/v1";
 }
 
 public class ExternalMcpConnectorOptions
