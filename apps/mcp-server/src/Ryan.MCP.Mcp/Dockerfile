@@ -12,6 +12,10 @@ RUN dotnet publish src/Ryan.MCP.Mcp/Ryan.MCP.Mcp.csproj -c Release -o /app/publi
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV ASPNETCORE_URLS=http://0.0.0.0:8081
 EXPOSE 8081
 
