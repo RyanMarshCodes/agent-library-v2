@@ -1,5 +1,15 @@
 {
   "mcpServers": {
+    "ryan-mcp-local-direct": {
+      "url": "http://localhost:8081/mcp"
+    },
+    "bifrost-gateway-local": {
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer $BIFROST_LOCAL_VK",
+        "x-bf-vk": "$BIFROST_LOCAL_VK"
+      }
+    },
     "aspire": {
       "command": "aspire",
       "args": [
