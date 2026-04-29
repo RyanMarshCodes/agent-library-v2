@@ -15,7 +15,10 @@
           "value": "env.OPENAI_API_KEY",
           "is_active": true,
           "is_default": true,
-          "weight": 0
+          "weight": 0,
+          "models": [
+            "*"
+          ]
         }
       ]
     }
@@ -33,14 +36,26 @@
         "is_active": true,
         "name": "ryan-prod",
         "description": "Ryan's production virtual key",
-        "value": "env.RYAN_PROD_VIRTUAL_KEY"
+        "value": "env.RYAN_PROD_VIRTUAL_KEY",
+        "provider_configs": [
+          {
+            "provider": "openai",
+            "allowed_models": [
+              "*"
+            ],
+            "key_ids": [
+              "*"
+            ],
+            "weight": 1
+          }
+        ]
       },
       {
         "id": "vk-ryan-work",
         "is_active": true,
         "name": "ryan-work",
         "description": "Ryan's work virtual key",
-        "value": "env.WORK_VIRTUAL_KEY"
+        "value": "env.RYAN_WORK_VIRTUAL_KEY"
       }
     ]
   },
