@@ -2,11 +2,6 @@
 name: "TechDebtAnalysisAgent"
 description: "Architecture-grade agent for fast, evidence-based technical debt analysis and proposal writing."
 model: claude-sonnet-4-6 # strong/analysis — alt: gpt-5.3-codex, gemini-3.1-pro
-model_by_tool:
-	copilot: gpt-4-1106-preview
-	anthropic: claude-sonnet-4-6
-	gemini: gemini-3.1-pro
-	opencode: gpt-5.3-codex
 scope: "architecture"
 tags: ["tech-debt", "architecture", "analysis", "refactoring", "any-stack"]
 ---

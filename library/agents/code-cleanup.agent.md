@@ -1,7 +1,7 @@
 ---
 name: "Code Cleanup Agent"
 description: "Stack-agnostic cleanup and simplification — removes dead code, reduces complexity, improves naming, eliminates duplication. Purely behavioral-preserving."
-model: gpt-5.4-nano # capable — alt: big-pickle, gemini-3-flash
+model: gpt-5.4-nano # capable — alt: claude-haiku-4-5, gemini-3-flash
 scope: "refactoring"
 tags: ["cleanup", "simplification", "dead-code", "readability", "refactoring", "any-stack"]
 ---

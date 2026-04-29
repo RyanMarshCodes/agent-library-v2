@@ -1,12 +1,7 @@
 ---
 name: "C#/.NET Quality Improver"
 description: "C#/.NET-specific cleanup AND modernization — applies latest C# syntax, nullable types, pattern matching, primary constructors, resolves warnings, improves test coverage. Does NOT migrate TargetFramework — use dotnet-upgrade for that."
-model: gpt-5.4-nano # capable — alt: big-pickle, gemini-3-flash
-model_by_tool:
-	copilot: gpt-4-1106-preview
-	anthropic: claude-haiku-4-5
-	gemini: gemini-3-flash
-	opencode: gpt-5.4-nano
+model: gpt-5.4-nano # capable — alt: claude-haiku-4-5, gemini-3-flash
 scope: "refactoring"
 tags: ["csharp", "dotnet", "cleanup", "modernization", "nullable-types", "refactoring"]
 ---
@@ -56,7 +51,7 @@ Cleanup + modernization for C#/.NET codebases. Unlike the generic `code-cleanup`
 1. Run tests after each modification — never break existing behavior
 2. Make small, focused changes — one concern at a time
 3. Follow existing project conventions before imposing new ones
-4. Use `microsoft.docs.mcp` for current .NET best practices when available
+4. Use official Microsoft .NET documentation; if `microsoft.docs.mcp` is available, prefer it for current guidance
 
 ## Analysis Order
 

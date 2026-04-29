@@ -2,11 +2,6 @@
 name: "Security Check Agent"
 description: "Performs security audits on code to identify vulnerabilities following OWASP Top 10 and industry best practices."
 model: claude-opus-4-6 # frontier — alt: gpt-5.4, gemini-3.1-pro
-model_by_tool:
-   copilot: gpt-4-1106-preview
-   anthropic: claude-opus-4-6
-   gemini: gemini-3.1-pro
-   opencode: gpt-5.4
 scope: "security"
 tags: ["security", "owasp", "audit", "vulnerabilities", "any-stack"]
 ---

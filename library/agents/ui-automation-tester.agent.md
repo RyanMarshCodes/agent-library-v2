@@ -1,7 +1,7 @@
 ---
 name: "UITestingExpert"
 description: "A specialist agent for designing, writing, and maintaining UI automation tests across browser and frontend unit testing frameworks."
-model: gpt-5.4-nano # capable — alt: big-pickle, gemini-3-flash
+model: gpt-5.4-nano # capable — alt: claude-haiku-4-5, gemini-3-flash
 scope: "testing"
 tags: ["ui-testing", "playwright", "cypress", "selenium", "vitest", "jest", "any-stack"]
 ---

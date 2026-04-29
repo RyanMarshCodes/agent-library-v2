@@ -1,7 +1,7 @@
 ---
 name: ui-designer
 description: "Design visual interfaces, create design systems, build component libraries — visual design, interaction patterns, and accessibility."
-model: gpt-5.4-nano # capable — alt: big-pickle, gemini-3-flash
+model: gpt-5.4-nano # capable — alt: claude-haiku-4-5, gemini-3-flash
 scope: "frontend"
 tags: ["design", "ui", "ux", "design-system", "accessibility", "components"]
 ---

@@ -1,9 +1,25 @@
 {
   "$schema": "https://www.getbifrost.ai/schema",
   "client": {
-    "drop_excess_requests": false
+    "drop_excess_requests": false,
+    "enforce_auth_on_inference": true,
+    "allow_direct_keys": true
   },
-  "providers": {},
+  "providers": {
+    "openai": {
+      "keys": [
+        {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key",
+          "description": "OpenAI API Key",
+          "value": "env.OPENAI_API_KEY",
+          "is_active": true,
+          "is_default": true,
+          "weight": 0
+        }
+      ]
+    }
+  },
   "governance": {
     "auth_config": {
       "admin_username": "env.ADMIN_USERNAME",
@@ -17,7 +33,14 @@
         "is_active": true,
         "name": "ryan-prod",
         "description": "Ryan's production virtual key",
-        "value": "env.INITIAL_VIRTUAL_KEY"
+        "value": "env.RYAN_PROD_VIRTUAL_KEY"
+      },
+      {
+        "id": "vk-ryan-work",
+        "is_active": true,
+        "name": "ryan-work",
+        "description": "Ryan's work virtual key",
+        "value": "env.WORK_VIRTUAL_KEY"
       }
     ]
   },
@@ -69,6 +92,35 @@
           "knowledge_pending",
           "knowledge_status"
         ]
+      },
+      {
+        "name": "filesystem",
+        "connection_type": "stdio",
+        "client_id": "filesystem-mcp-server",
+        "connection_string": "filesystem-mcp-server",
+        "is_code_mode_client": true,
+        "stdio_config": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem"
+          ]
+        },
+        "auth_type": "none",
+        "tools_to_execute": [
+          "*"
+        ],
+        "tools_to_auto_execute": [
+          "directory_tree",
+          "get_file_info",
+          "list_directory",
+          "list_directory_with_sizes",
+          "read_file",
+          "read_media_file",
+          "read_multiple_files",
+          "read_text_file",
+          "search_files"
+        ]
       }
     ]
   },
@@ -102,5 +154,33 @@
     "config": {
       "addr": "env.BIFROST_REDIS_ADDR"
     }
-  }
+  },
+  "plugins": [
+    {
+      "enabled": true,
+      "name": "otel",
+      "config": {
+        "service_name": "bifrost",
+        "collector_url": "https://otlp.nr-data.net:4318/v1/traces",
+        "trace_type": "genai_extension",
+        "protocol": "http",
+        "headers": {
+          "api-key": "env.NEWRELIC_API_KEY"
+        },
+        "metrics_enabled": true,
+        "metrics_endpoint": "https://otlp.nr-data.net:4318/v1/metrics"
+      }
+    },
+    {
+      "enabled": true,
+      "name": "semantic_cache",
+      "config": {
+        "dimension": 1,
+        "ttl": "5m",
+        "cleanup_on_shutdown": true,
+        "cache_by_model": true,
+        "cache_by_provider": true
+      }
+    }
+  ]
 }

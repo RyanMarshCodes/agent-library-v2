@@ -2,7 +2,6 @@
 name: "Orchestrator"
 description: "Token-efficient task orchestrator — decomposes requests, routes each subtask to the right specialist agent, parallelizes where possible, and returns aggregated results. Never does specialist work itself."
 model: claude-opus-4-6 # frontier — alt: gpt-5.4, gemini-3.1-pro
-model_by_tool: opencode=claude-opus-4-6, copilot=gpt-5.4, claude=claude-opus-4-6, gemini=gemini-3.1-pro
 scope: "orchestration"
 tags: ["orchestration", "delegation", "routing", "multi-agent", "efficiency", "any-stack"]
 ---
@@ -73,7 +72,7 @@ Map every incoming task to the most specific matching agent. When multiple agent
 
 ## Canonical workflows (slash commands)
 
-The same routing philosophy applies to **repository-wide workflows** documented in `apps/mcp-server/knowledgebase/WORKFLOW_COMMANDS.md`. Prefer invoking these via slash command or natural language; they map to skills, not separate orchestrator agents:
+The same routing philosophy applies to **repository-wide workflows** documented in `apps/mcp-server/knowledgebase/WORKFLOW_COMMANDS.md`. Prefer invoking these via natural language, or slash commands where supported by the current client environment; they map to skills, not separate orchestrator agents:
 
 `/spec`, `/validate`, `/architect`, `/implement`, `/test`, `/reflect`, `/review`, `/commit`, `/wrapup`, `/proceed`, `/status`, `/bugfix`, `/context`, `/init`.
 

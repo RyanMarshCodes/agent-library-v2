@@ -2,11 +2,6 @@
 name: "CodeAnalysisAgent"
 description: "Senior software architect-level analysis of any codebase, project, or system across any language, framework, or stack."
 model: claude-opus-4-6 # frontier — alt: gpt-5.4, gemini-3.1-pro
-model_by_tool:
-   copilot: gpt-4-1106-preview
-   anthropic: claude-opus-4-6
-   gemini: gemini-3.1-pro
-   opencode: gpt-5.4
 scope: "architecture"
 tags: ["code-analysis", "architecture", "quality", "any-stack"]
 ---

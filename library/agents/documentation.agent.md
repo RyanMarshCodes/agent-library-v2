@@ -2,11 +2,6 @@
 name: "DocumentationAgent"
 description: "Technical writing agent — produces READMEs, API docs, ADRs, runbooks, changelogs, and onboarding guides for any project. Reads first, writes accurately."
 model: claude-haiku-4-5 # efficient — alt: gemini-3-flash, gpt-5.4-nano
-model_by_tool:
-	copilot: gpt-4-1106-preview
-	anthropic: claude-haiku-4-5
-	gemini: gemini-3-flash
-	opencode: gpt-5.4-nano
 scope: "documentation"
 tags: ["documentation", "readme", "api-docs", "onboarding", "any-stack"]
 ---

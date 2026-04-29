@@ -13,7 +13,7 @@
 
 A **standalone, general-purpose, AI-maintained knowledge base** in its own repo (`knowledge-library`), separate from the `ai-stack` MCP platform. A **Librarian agent** orchestrates all ingestion, categorization, and maintenance — delegating to subagents for specialized processing tasks. The system exposes hybrid full-text + semantic search via OpenSearch and a rich MCP tool surface. Human oversight is lightweight: uncertain items land in a markdown review queue for user approval via an MCP tool.
 
-The `ai-stack` MCP server connects to this library via a configured OpenSearch URL — it knows nothing about the file store internals, only how to search and retrieve.
+The `knowledge-library` repo is hosted locally and is the source of truth for `raw/` and `knowledge/`. The Librarian runs against that local filesystem, then publishes/searches through MCP tools exposed by the Bifrost gateway. Runtime paths/endpoints are configuration-driven from `librarian-config.json` and validated by `librarian-config.schema.json` (no hardcoded machine-specific paths).
 
 Human-readable wiki interface (Notion, GitHub Wiki, Obsidian, etc.) is **deferred** — the file-based knowledge store and vector search are the foundation; the viewer layer can be added later without architectural changes.
 
@@ -33,31 +33,27 @@ Human-readable wiki interface (Notion, GitHub Wiki, Obsidian, etc.) is **deferre
 ## Architecture Overview
 
 ```
-knowledge-library repo                    ai-stack repo (VPS)
-─────────────────────────────────         ──────────────────────
-[User drops files — any format]
-raw/pending/  (gitignored)
-librarian-config.json
+knowledge-library repo (local machine)           MCP endpoint (remote-first)
+──────────────────────────────────────           ───────────────────────────
+[User drops files — any format]                 [Bifrost MCP Gateway]
+raw/pending/ (gitignored)                       https://llm.ryanmarsh.net/mcp
+librarian-config.json                           (fallback: local MCP server)
 
-        │  on-demand MCP / Claude Routine
-        ▼
-[Librarian Agent]  ← Claude Sonnet
-agents/librarian.agent.md
-        │
-        ├──► [Format Subagents]           MCP Server (.NET)
-        │    PDF, OCR, URL, DOCX              │
-        │    (Haiku where sufficient)          │  OPENSEARCH_URL (env var)
-        │                                      │
-        │ approved          review             │
-        ▼                   ▼                  │
-[File Store]         [_review/]               │
- local fs (dev)                               │
- Azure Blob (prod)                            │
-        │                                     │
-        ▼                                     │
-[OpenSearch]  ◄───────────────────────────────┘
- BM25 + kNN hybrid index          knowledge_search / knowledge_retrieve
- (Docker, local or Azure VM)      point at this OpenSearch instance
+        │  on-demand / scheduled run                        ▲
+        ▼                                                   │ MCP tools
+[Librarian Agent]  ← Claude Sonnet                          │
+agents/librarian.agent.md                                   │
+        │                                                   │
+        ├──► [Format Subagents]                             │
+        │    PDF, OCR, URL, DOCX                            │
+        │    (Haiku where sufficient)                       │
+        │                                                   │
+        │ approved          review                          │
+        ▼                   ▼                               │
+[knowledge/]        [knowledge/_review/] ───────────────────┘
+  local files            local files
+
+Local repo remains canonical for file content. Remote MCP tools are the integration surface for indexing, retrieval, approvals, status, and query workflows.
 ```
 
 ### Repo structure (`knowledge-library`)
@@ -90,9 +86,17 @@ knowledge-library/
   PLAN.md                  ← this file (moved here from ai-stack/docs/)
 ```
 
-### Deployment (single merged stack on Vultr VPS)
+### Endpoint Strategy (remote-first, local fallback)
 
-Both repos deploy together via a single Docker Compose stack on the VPS. The `ai-stack` compose uses Docker Compose v2's `include:` directive to pull in knowledge-library's services:
+The Librarian reads MCP endpoints from `librarian-config.json` and attempts them in order:
+1. Remote MCP gateway (primary, e.g. `https://llm.ryanmarsh.net/mcp`)
+2. Local MCP server (development/testing fallback)
+
+This keeps knowledge authoring and file ownership local while still integrating with remote MCP capabilities when available.
+
+### Deployment (remote services + local library workflow)
+
+Remote services can still be deployed together on the VPS. The `ai-stack` compose uses Docker Compose v2's `include:` directive to pull in knowledge-library service definitions when running full-stack infra remotely:
 
 ```yaml
 # ai-stack/docker-compose.yml
@@ -106,7 +110,7 @@ services:
   redis: ...
 ```
 
-On the VPS, both repos are cloned side by side. One `docker compose up` starts everything. The knowledge-library's `knowledge/` directory lives on the VPS disk — no cloud storage needed.
+When running the local-first workflow, the configured `knowledge_path` remains the canonical file store managed by the Librarian.
 
 ---
 
@@ -238,7 +242,7 @@ knowledge_approve(review_id: string, override_path?: string) → PublishResult
 
 **Location**: `knowledge/` — plain markdown files organized by domain, viewer-agnostic.
 
-**Storage**: Local disk in all environments (local dev and VPS). No cloud storage abstraction needed. The `knowledge/` directory is a standard filesystem path, readable and writable by both the Librarian and the MCP server directly.
+**Storage**: Local disk in all environments. No cloud storage abstraction needed. The `knowledge/` directory path is configurable and managed by the local Librarian process. MCP integration happens over tool calls (remote-first, local fallback), not direct file sharing.
 
 This is the Librarian's working directory — plain markdown files organized by domain. Human-readable by opening files directly, viewer-agnostic. A wiki viewer (Obsidian, Notion import, GitHub Wiki, etc.) can be layered on top later without changing this structure.
 
@@ -485,6 +489,18 @@ New tool class: **KnowledgeLibrarianTools**
 
 ```json
 {
+  "paths": {
+    "knowledge_path": "./knowledge",
+    "raw_pending_path": "./raw/pending",
+    "raw_processed_path": "./raw/processed"
+  },
+  "mcp": {
+    "endpoints": [
+      "https://llm.ryanmarsh.net/mcp",
+      "http://localhost:8081/mcp"
+    ],
+    "timeout_ms": 8000
+  },
   "scan_paths": [
     {
       "path": "/absolute/path/to/some/codebase/docs",
@@ -541,11 +557,11 @@ The Librarian can also be invoked on-demand at any time via `librarian_run` or `
 ## Deployment
 
 ### Local dev
-`docker compose up` in the `knowledge-library` repo — runs OpenSearch always-on, Elasticvue behind `--profile=dashboards`. Files written to local `knowledge/` directory.
+`docker compose up` in the `knowledge-library` repo — runs OpenSearch always-on, Elasticvue behind `--profile=dashboards`. Files are written to the local `knowledge/` directory and managed by the local Librarian.
 
-### VPS (prod — Vultr, scaled to 8GB/4vCPU, ~$48/month)
+### Remote infra (VPS — Vultr, scaled to 8GB/4vCPU, ~$48/month)
 
-Both repos cloned side by side on the VPS. `ai-stack/docker-compose.yml` uses `include:` to pull in knowledge-library services. One `docker compose up` starts the full combined stack.
+Both repos can be cloned side by side on the VPS. `ai-stack/docker-compose.yml` uses `include:` to pull in knowledge-library services. One `docker compose up` starts the full combined stack when you want remote-hosted infra.
 
 ```
 /srv/
@@ -559,7 +575,7 @@ Both repos cloned side by side on the VPS. `ai-stack/docker-compose.yml` uses `i
     raw/pending/
 ```
 
-nginx + certbot already configured on the VPS. `llm.ryanmarsh.net` already pointed at the VPS. No changes needed to the networking layer.
+nginx + certbot already configured on the VPS. `llm.ryanmarsh.net` already points at the VPS and is the preferred MCP endpoint whenever reachable.
 
 ---
 
@@ -594,9 +610,12 @@ knowledge/
 - [ ] Create `raw/` directory with README and `.gitignore` rules
 - [ ] Create `knowledge/_meta/` scaffold (index.md, log.md, taxonomy.md stubs)
 - [ ] Create `librarian-config.json` with schema
+- [ ] Add config/schema fields for local filesystem paths (`knowledge_path`, `raw_pending_path`, `raw_processed_path`)
+- [ ] Add config/schema fields for ordered MCP endpoints (remote-first + local fallback)
 - [ ] Design and create OpenSearch index (`knowledge-wiki`) with mapping
 - [ ] Confirm OpenAI embeddings route via Bifrost (test `/embeddings` endpoint in ai-stack config)
 - [ ] Wire `OPENSEARCH_URL` env var into ai-stack MCP server `.env`
+- [ ] Configure MCP endpoint resolution from `librarian-config.json` (remote-first with local fallback)
 - [ ] Add `include:` for knowledge-library services in ai-stack `docker-compose.yml`
 
 ### Phase 1 — Librarian Agent + Review Queue
@@ -644,5 +663,6 @@ knowledge/
 | 4 | `raw/` in git | Gitignore `pending/` and `processed/`; track only `README.md` | ✅ Decided |
 | 5 | `personal/` domain | Removed — not needed | ✅ Closed |
 | 6 | Separate repo vs same repo | **Separate repo** (`knowledge-library`) — independent codebase, single merged Docker Compose for deployment | ✅ Decided |
-| 7 | Hosting | Vultr VPS scaled to 8GB/4vCPU (~$48/month); both stacks on one Docker Compose via `include:` | ✅ Decided |
-| 8 | File storage | Local disk on VPS — no cloud storage needed | ✅ Decided |
+| 7 | Hosting model | **Local-first knowledge-library**; all filesystem and endpoint paths are config-driven via `librarian-config.json` + schema | ✅ Decided |
+| 8 | MCP target | Ordered endpoints from config; prefer remote gateway, fallback to local MCP for testing | ✅ Decided |
+| 9 | File storage | Local disk in `knowledge-library/knowledge` managed by Librarian (no cloud storage) | ✅ Decided |

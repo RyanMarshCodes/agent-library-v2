@@ -1,7 +1,7 @@
 ---
 name: "AC Test Planner Agent"
 description: "Derives a structured test plan and writes unit test stubs from feature Acceptance Criteria — AC-first, language-agnostic planning before any code exists."
-model: gpt-5.4-nano # capable — alt: big-pickle, gemini-3-flash
+model: gpt-5.4-nano # capable — alt: claude-haiku-4-5, gemini-3-flash
 scope: "testing"
 tags: ["testing", "acceptance-criteria", "tdd", "bdd", "test-planning", "unit-tests", "stubs", "requirements", "any-stack"]
 ---
