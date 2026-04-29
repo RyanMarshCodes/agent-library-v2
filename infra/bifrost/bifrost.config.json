@@ -168,7 +168,9 @@
           "api-key": "env.NEWRELIC_API_KEY"
         },
         "metrics_enabled": true,
-        "metrics_endpoint": "https://otlp.nr-data.net:4318/v1/metrics"
+        "metrics_endpoint": "https://otlp.nr-data.net:4318/v1/metrics",
+        "insecure": false,
+        "tls_ca_cert": ""
       }
     },
     {
