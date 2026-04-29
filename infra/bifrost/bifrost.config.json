@@ -15,7 +15,7 @@
           "value": "env.OPENAI_API_KEY",
           "is_active": true,
           "is_default": true,
-          "weight": 0,
+          "weight": 1.0,
           "models": [
             "*"
           ]
@@ -48,6 +48,20 @@
             ],
             "weight": 1
           }
+        ],
+        "mcp_configs": [
+          {
+            "mcp_client_name": "ryan",
+            "tools_to_execute": [
+              "*"
+            ]
+          },
+          {
+            "mcp_client_name": "filesystem",
+            "tools_to_execute": [
+              "*"
+            ]
+          }
         ]
       },
       {
@@ -55,7 +69,33 @@
         "is_active": true,
         "name": "ryan-work",
         "description": "Ryan's work virtual key",
-        "value": "env.RYAN_WORK_VIRTUAL_KEY"
+        "value": "env.RYAN_WORK_VIRTUAL_KEY",
+        "provider_configs": [
+          {
+            "provider": "openai",
+            "allowed_models": [
+              "*"
+            ],
+            "key_ids": [
+              "*"
+            ],
+            "weight": 1
+          }
+        ],
+        "mcp_configs": [
+          {
+            "mcp_client_name": "ryan",
+            "tools_to_execute": [
+              "*"
+            ]
+          },
+          {
+            "mcp_client_name": "filesystem",
+            "tools_to_execute": [
+              "*"
+            ]
+          }
+        ]
       }
     ]
   },
