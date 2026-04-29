@@ -7,6 +7,9 @@
     "enable_logging": true,
     "allowed_origins": [
       "*"
+    ],
+    "allowed_headers": [
+      "*"
     ]
   },
   "providers": {
