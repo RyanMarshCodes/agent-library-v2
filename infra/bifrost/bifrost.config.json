@@ -3,7 +3,11 @@
   "client": {
     "drop_excess_requests": false,
     "enforce_auth_on_inference": true,
-    "allow_direct_keys": true
+    "allow_direct_keys": true,
+    "enable_logging": true,
+    "allowed_origins": [
+      "*"
+    ]
   },
   "providers": {
     "openai": {
@@ -48,20 +52,6 @@
             ],
             "weight": 1
           }
-        ],
-        "mcp_configs": [
-          {
-            "mcp_client_name": "ryan",
-            "tools_to_execute": [
-              "*"
-            ]
-          },
-          {
-            "mcp_client_name": "filesystem",
-            "tools_to_execute": [
-              "*"
-            ]
-          }
         ]
       },
       {
@@ -81,20 +71,6 @@
             ],
             "weight": 1
           }
-        ],
-        "mcp_configs": [
-          {
-            "mcp_client_name": "ryan",
-            "tools_to_execute": [
-              "*"
-            ]
-          },
-          {
-            "mcp_client_name": "filesystem",
-            "tools_to_execute": [
-              "*"
-            ]
-          }
         ]
       }
     ]
@@ -102,11 +78,15 @@
   "mcp": {
     "client_configs": [
       {
-        "name": "ryan",
+        "name": "local",
         "connection_type": "http",
-        "client_id": "ryan-mcp-server",
+        "client_id": "local-mcp-server",
+        "tool_sync_interval": "1m",
         "connection_string": "http://mcp-server:8081/mcp",
+        "auth_type": "none",
         "is_code_mode_client": true,
+        "is_ping_available": true,
+        "allow_on_all_virtual_keys": true,
         "tools_to_execute": [
           "*"
         ],
@@ -114,9 +94,7 @@
           "list_standards",
           "read_document",
           "search_documents",
-          "knowledge_retrieve",
           "ingestion_status",
-          "knowledge_status",
           "list_agents",
           "get_agent",
           "search_agents",
@@ -154,6 +132,7 @@
         "client_id": "filesystem-mcp-server",
         "connection_string": "filesystem-mcp-server",
         "is_code_mode_client": true,
+        "allow_on_all_virtual_keys": true,
         "stdio_config": {
           "command": "npx",
           "args": [
