@@ -16,9 +16,8 @@
     "openai": {
       "keys": [
         {
-          "id": "openai-api-key",
-          "name": "OpenAI API Key",
-          "description": "OpenAI API Key",
+          "name": "openai-api-key-default",
+          "description": "Default OpenAI API Key",
           "value": "env.OPENAI_API_KEY",
           "is_active": true,
           "is_default": true,
@@ -79,6 +78,9 @@
     ]
   },
   "mcp": {
+    "tool_manager_config": {
+      "disable_auto_tool_inject": true
+    },
     "client_configs": [
       {
         "name": "local",
