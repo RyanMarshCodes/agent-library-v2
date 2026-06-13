@@ -33,8 +33,7 @@
     "auth_config": {
       "admin_username": "env.ADMIN_USERNAME",
       "admin_password": "env.ADMIN_PASSWORD",
-      "is_enabled": true,
-      "disable_auth_on_inference": false
+      "is_enabled": true
     },
     "virtual_keys": [
       {
@@ -218,7 +217,6 @@
       "config": {
         "dimension": 1,
         "ttl": "5m",
-        "cleanup_on_shutdown": true,
         "cache_by_model": true,
         "cache_by_provider": true
       }
